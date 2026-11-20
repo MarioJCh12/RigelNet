@@ -198,6 +198,12 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
       .help("Host a network deathmatch that others can join with --connect")
     | lyra::opt(hostPort, "port")["--port"]
       .help("UDP port for hosting (default 7777)")
+    | lyra::opt(config.mSimulatedLatencyMs, "ms")["--simulate-lag"]
+      .help(
+        "For testing network play: Add this much latency (round trip) to "
+        "the connection when using --connect")
+    | lyra::opt(config.mDebugInputScript, "script")["--debug-input-script"]
+      .help("For automated testing: Play with scripted input")
     | lyra::opt(config.mConnectAddress, "address")["--connect"]
       .help(
         "Join a network deathmatch. Address of the host, e.g. 192.168.1.20 "
@@ -361,6 +367,12 @@ void connectToHost(CommandLineOptions& config)
   // settings come from the host.
   config.mDeathmatch = game_logic::DeathmatchOptions{};
   config.mDeathmatch->mNumPlayers = welcome.mNumPlayers;
+
+  if (config.mSimulatedLatencyMs > 0)
+  {
+    pClient->setSimulatedLatency(
+      std::chrono::milliseconds(config.mSimulatedLatencyMs));
+  }
 
   config.mpNetworkClient = std::move(pClient);
 }

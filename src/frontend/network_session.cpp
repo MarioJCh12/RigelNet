@@ -22,6 +22,7 @@
 
 #include <loguru.hpp>
 
+#include <deque>
 #include <map>
 #include <optional>
 #include <utility>
@@ -101,15 +102,36 @@ public:
     }
   }
 
-  void fillRemoteInputs(std::vector<PlayerInput>& inputs) override
+  void fillRemoteInputs(std::vector<PlayerInput>&) override
   {
+    // Each network player gets exactly one of their inputs per frame, in
+    // the order the client produced them. This keeps our simulation of
+    // their player in step with the client's own (prediction). If no input
+    // has arrived yet, their player waits for it.
     for (auto& [id, client] : mClients)
     {
-      if (client.mPlayerIndex && *client.mPlayerIndex < int(inputs.size()))
+      if (!client.mPlayerIndex || client.mInputQueue.empty())
       {
-        inputs[*client.mPlayerIndex] = client.mInput;
-        client.mInput.resetTriggeredStates();
+        continue;
       }
+
+      auto message = client.mInputQueue.front();
+      client.mInputQueue.pop_front();
+
+      // If the client is far ahead (e.g. after a lag spike), catch up by
+      // combining inputs. The client will correct its prediction.
+      while (client.mInputQueue.size() > MAX_QUEUED_INPUTS)
+      {
+        auto next = client.mInputQueue.front();
+        client.mInputQueue.pop_front();
+        next.mInput = network::mergeInputs(message.mInput, next.mInput);
+        message = next;
+      }
+
+      mpWorld->setRemotePlayerFrame(
+        *client.mPlayerIndex,
+        game_logic::RemotePlayerFrame{
+          message.mInput, message.mSequence, message.mPredictedPosition});
     }
   }
 
@@ -191,10 +213,14 @@ public:
   bool isClient() const override { return false; }
 
 private:
+  // About half a second of input. More than that means the client is
+  // running ahead of us.
+  static constexpr auto MAX_QUEUED_INPUTS = 8u;
+
   struct Client
   {
     std::optional<int> mPlayerIndex;
-    PlayerInput mInput;
+    std::deque<network::InputMessage> mInputQueue;
   };
 
   void handleDisconnect(const ClientId id)
@@ -279,7 +305,7 @@ private:
     {
       if (const auto input = network::decodeInput(data))
       {
-        client.mInput = network::mergeInputs(client.mInput, input->mInput);
+        client.mInputQueue.push_back(*input);
         mpWorld->setRemoteViewportSize(
           *client.mPlayerIndex, input->mViewportSize);
       }
@@ -379,7 +405,9 @@ public:
 
     if (latestSnapshot)
     {
+      const auto wasPredicting = mpWorld->predictedPlayerPosition().has_value();
       mpWorld->applySnapshot(*latestSnapshot);
+      reconcilePrediction(*latestSnapshot, wasPredicting);
     }
   }
 
@@ -387,10 +415,27 @@ public:
 
   void sendUpdates(const PlayerInput& localInput) override
   {
-    mpClient->send(
-      network::CHANNEL_RELIABLE,
-      network::encode(
-        network::InputMessage{localInput, mpWorld->remoteViewportSize()}));
+    network::InputMessage message;
+    message.mSequence = mNextSequence++;
+    message.mViewportSize = mpWorld->remoteViewportSize();
+    message.mPredictedPosition = mpWorld->predictedPlayerPosition();
+
+    // While we're not simulating our player (not spawned yet, or dead), our
+    // input isn't applied locally. So it shouldn't be applied on the host
+    // either, otherwise the two simulations get out of step.
+    message.mInput =
+      message.mPredictedPosition ? localInput : game_logic::PlayerInput{};
+
+    if (message.mPredictedPosition)
+    {
+      mPredictions.push_back({message.mSequence, *message.mPredictedPosition});
+      while (mPredictions.size() > MAX_PREDICTIONS)
+      {
+        mPredictions.pop_front();
+      }
+    }
+
+    mpClient->send(network::CHANNEL_RELIABLE, network::encode(message));
     mpClient->flush();
   }
 
@@ -406,10 +451,75 @@ public:
   bool isClient() const override { return true; }
 
 private:
+  struct Prediction
+  {
+    std::uint32_t mSequence;
+    base::Vec2 mPosition;
+  };
+
+  // Ten seconds' worth. Older predictions can't be matched anymore.
+  static constexpr auto MAX_PREDICTIONS = 150u;
+
+  /** Compare where we predicted our player to be with where the host says
+   * it actually was, after the same input. Correct any difference.
+   *
+   * Inputs we sent after that one were already applied to our player, so we
+   * shift it by the difference instead of setting the host's position. */
+  void reconcilePrediction(
+    const game_logic::NetSnapshot& snapshot,
+    const bool wasPredicting)
+  {
+    if (snapshot.mIsDead || !wasPredicting)
+    {
+      // Dying or respawning: The world starts predicting from scratch
+      mPredictions.clear();
+      return;
+    }
+
+    while (!mPredictions.empty() &&
+           mPredictions.front().mSequence < snapshot.mLastInputSequence)
+    {
+      mPredictions.pop_front();
+    }
+
+    if (
+      mPredictions.empty() ||
+      mPredictions.front().mSequence != snapshot.mLastInputSequence)
+    {
+      return;
+    }
+
+    const auto error =
+      snapshot.mPlayerPosition - mPredictions.front().mPosition;
+    mPredictions.pop_front();
+
+    if (error != base::Vec2{})
+    {
+      ++mNumCorrections;
+      LOG_F(
+        INFO,
+        "Prediction corrected by %d,%d (input %u, %d corrections so far)",
+        error.x,
+        error.y,
+        snapshot.mLastInputSequence,
+        mNumCorrections);
+
+      mpWorld->correctPrediction(error);
+      for (auto& prediction : mPredictions)
+      {
+        prediction.mPosition += error;
+      }
+    }
+  }
+
   std::shared_ptr<network::NetworkClient> mpClient;
   INetworkWorld* mpWorld;
   IGameServiceProvider* mpServiceProvider;
   std::optional<std::uint32_t> mLastFrame;
+
+  std::uint32_t mNextSequence = 1;
+  std::deque<Prediction> mPredictions;
+  int mNumCorrections = 0;
 };
 
 } // namespace

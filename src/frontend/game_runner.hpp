@@ -83,6 +83,7 @@ private:
   bool mSingleStepping = false;
   bool mDoNextSingleStep = false;
   bool mLevelFinishedByDebugKey = false;
+  std::size_t mScriptedInputFrame = 0;
 };
 
 } // namespace rigel

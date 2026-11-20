@@ -18,6 +18,7 @@
 
 #include "base/color.hpp"
 #include "base/spatial_types.hpp"
+#include "game_logic_common/input.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -73,11 +74,17 @@ struct NetSnapshot
 {
   std::uint32_t mFrame = 0;
 
+  // For client-side prediction: The client's player position after the host
+  // processed the client's input with the given sequence number
+  std::uint32_t mLastInputSequence = 0;
+  base::Vec2 mPlayerPosition;
+
   base::Vec2 mCameraPosition;
   int mScreenShakeOffsetX = 0;
   std::optional<base::Color> mScreenFlashColor;
 
-  // The client's own player
+  // The client's own player. Sprites don't include the client's own player
+  // while it's alive, since the client draws it itself (prediction).
   bool mIsDead = false;
   int mHealth = 0;
   int mWeapon = 0;
@@ -114,6 +121,15 @@ struct NetWorldEvents
 };
 
 
+/** One frame of input from a network player, see InputMessage */
+struct RemotePlayerFrame
+{
+  PlayerInput mInput;
+  std::uint32_t mSequence = 0;
+  std::optional<base::Vec2> mPredictedPosition;
+};
+
+
 /** Network-related functionality of a game world
  *
  * Implemented by the modern GameWorld. The frontend uses this to connect
@@ -134,6 +150,11 @@ public:
   virtual void
     setRemoteViewportSize(int playerIndex, const base::Size& size) = 0;
 
+  /** Input for a network player's next update. Network players without
+   * input for a frame don't move during that frame. */
+  virtual void
+    setRemotePlayerFrame(int playerIndex, const RemotePlayerFrame& frame) = 0;
+
   virtual NetSnapshot captureSnapshot(int playerIndex) = 0;
 
   /** Changes since the previous call */
@@ -152,6 +173,12 @@ public:
 
   /** Size of this computer's game view, which the host needs to know */
   virtual base::Size remoteViewportSize() const = 0;
+
+  /** Position of the locally simulated (predicted) player, if alive */
+  virtual std::optional<base::Vec2> predictedPlayerPosition() const = 0;
+
+  /** Move the predicted player, to fix a difference to the host's game */
+  virtual void correctPrediction(const base::Vec2& offset) = 0;
 };
 
 } // namespace rigel::game_logic

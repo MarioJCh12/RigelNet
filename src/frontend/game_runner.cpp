@@ -216,7 +216,23 @@ void GameRunner::updateWorld(const engine::TimeDelta dt)
       mpNetworkSession->receive();
     }
 
-    const auto localInput = mInputHandler.fetchInput();
+    auto localInput = mInputHandler.fetchInput();
+
+    const auto& script =
+      mContext.mpServiceProvider->commandLineOptions().mDebugInputScript;
+    if (!script.empty())
+    {
+      const auto c = script[mScriptedInputFrame++ % script.size()];
+      const auto previous =
+        script[(mScriptedInputFrame + script.size() - 2) % script.size()];
+      localInput = game_logic::PlayerInput{};
+      localInput.mLeft = c == 'L';
+      localInput.mRight = c == 'R';
+      localInput.mUp = c == 'U';
+      localInput.mDown = c == 'D';
+      localInput.mJump = {c == 'J', c == 'J' && previous != 'J'};
+      localInput.mFire = {c == 'F', c == 'F' && previous != 'F'};
+    }
 
     if (mpNetworkSession && mpNetworkSession->isClient())
     {

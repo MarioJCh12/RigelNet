@@ -51,6 +51,8 @@ TEST_CASE("Network protocol: messages survive encoding and decoding")
     original.mInput.mJump = {true, true};
     original.mInput.mFire = {true, false};
     original.mViewportSize = {41, 20};
+    original.mSequence = 70000;
+    original.mPredictedPosition = base::Vec2{120, 37};
 
     const auto decoded = decodeInput(encode(original));
 
@@ -64,12 +66,24 @@ TEST_CASE("Network protocol: messages survive encoding and decoding")
     CHECK(!decoded->mInput.mFire.mWasTriggered);
     CHECK(!decoded->mInput.mInteract.mIsPressed);
     CHECK(decoded->mViewportSize == base::Size{41, 20});
+    CHECK(decoded->mSequence == 70000);
+    CHECK(decoded->mPredictedPosition == base::Vec2{120, 37});
+
+    SECTION("Without prediction (player dead)")
+    {
+      original.mPredictedPosition.reset();
+      const auto decodedDead = decodeInput(encode(original));
+      REQUIRE(decodedDead);
+      CHECK(!decodedDead->mPredictedPosition);
+    }
   }
 
   SECTION("Snapshot")
   {
     game_logic::NetSnapshot original;
     original.mFrame = 123456;
+    original.mLastInputSequence = 99999;
+    original.mPlayerPosition = {210, 50};
     original.mCameraPosition = {200, 37};
     original.mScreenFlashColor = base::Color{255, 0, 0, 255};
     original.mHealth = 7;
@@ -95,6 +109,8 @@ TEST_CASE("Network protocol: messages survive encoding and decoding")
 
     REQUIRE(decoded);
     CHECK(decoded->mFrame == 123456);
+    CHECK(decoded->mLastInputSequence == 99999);
+    CHECK(decoded->mPlayerPosition == base::Vec2{210, 50});
     CHECK(decoded->mCameraPosition == base::Vec2{200, 37});
     CHECK(decoded->mScreenFlashColor == base::Color{255, 0, 0, 255});
     CHECK(decoded->mHealth == 7);

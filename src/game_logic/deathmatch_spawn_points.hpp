@@ -59,6 +59,13 @@ private:
 };
 
 
+/** True if the player's bounding box at the given position doesn't overlap
+ * any walls. Doesn't require ground below. */
+bool isPlayerPositionFree(
+  const data::map::Map& map,
+  const base::Vec2& position);
+
+
 /** True if the player fits at the given position and stands on ground */
 bool isValidSpawnSpot(const data::map::Map& map, const base::Vec2& position);
 

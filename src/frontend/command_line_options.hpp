@@ -66,6 +66,14 @@ struct CommandLineOptions
   /** If set, join a network deathmatch at this address ("host[:port]") */
   std::string mConnectAddress;
 
+  /** For testing network play: Added round-trip time in milliseconds */
+  int mSimulatedLatencyMs = 0;
+
+  /** For automated testing: Replaces keyboard/controller input with a
+   * repeating sequence. Each character is one frame: L/R = left/right,
+   * U/D = up/down, J = jump, F = fire, anything else = nothing. */
+  std::string mDebugInputScript;
+
   /** If set, this is a network client already connected to a host */
   std::shared_ptr<network::NetworkClient> mpNetworkClient;
 };

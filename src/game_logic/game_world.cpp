@@ -368,7 +368,7 @@ void GameWorld::receive(const rigel::events::CheckPointActivated& event)
 
 void GameWorld::receive(const rigel::events::ExitReached& event)
 {
-  if (mpDeathmatch)
+  if (mpDeathmatch || mpRemoteView)
   {
     // There's no level exit in deathmatch
     return;
@@ -395,7 +395,7 @@ void GameWorld::receive(const rigel::events::HintMachineMessage& event)
 
 void GameWorld::receive(const rigel::events::PlayerDied& event)
 {
-  if (mpDeathmatch)
+  if (mpDeathmatch || mpRemoteView)
   {
     // Deaths are handled per player in updateDeathmatchRules()
     return;
@@ -597,7 +597,7 @@ void GameWorld::updateGameLogic(const PlayerInput& input)
 {
   if (mpRemoteView)
   {
-    updateRemoteView();
+    updateRemoteView(input);
     return;
   }
 
@@ -847,8 +847,14 @@ void GameWorld::render(const float interpolationFactor)
     const auto& snapshot = mpRemoteView->mSnapshot;
     const auto worldAreaSize = deathmatchWorldAreaSize();
 
-    drawWorldFromCamera(
-      worldAreaSize, snapshot.mCameraPosition, snapshot.mCameraPosition);
+    // While our player is alive, we simulate it ourselves (prediction), and
+    // the camera follows the local simulation. Otherwise, use the host's.
+    const auto cameraPosition = mpRemoteView->mIsPredicting
+      ? mpState->mCamera.position()
+      : snapshot.mCameraPosition;
+
+    updateRemoteSprites(interpolationFactor);
+    drawWorldFromCamera(worldAreaSize, cameraPosition, cameraPosition);
 
     const auto playerIndex = mpRemoteView->mPlayerIndex;
     drawDeathmatchPlayerStatus(
@@ -1221,7 +1227,7 @@ bool GameWorld::widescreenModeOn() const
 
 void GameWorld::processEndOfFrameActions()
 {
-  if (!mpDeathmatch)
+  if (!mpDeathmatch && !mpRemoteView)
   {
     handlePlayerDeath();
     handleTeleporter();

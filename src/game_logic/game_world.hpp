@@ -120,6 +120,10 @@ public:
   void applyTileChanges(const std::vector<NetTileChange>& changes) override;
   void showRemoteMessage(const std::string& message) override;
   base::Size remoteViewportSize() const override;
+  void setRemotePlayerFrame(int playerIndex, const RemotePlayerFrame& frame)
+    override;
+  std::optional<base::Vec2> predictedPlayerPosition() const override;
+  void correctPrediction(const base::Vec2& offset) override;
   void render(float interpolationFactor = 0.0f) override;
   void processEndOfFrameActions() override;
   void updateBackdropAutoScrolling(engine::TimeDelta dt) override;
@@ -190,7 +194,9 @@ private:
   base::Size deathmatchWorldAreaSize() const;
   std::vector<DeathmatchViewport> deathmatchViewports() const;
   std::vector<base::Size> deathmatchViewportSizes() const;
-  void updateRemoteView();
+  void updateRemoteView(const PlayerInput& input);
+  void applyPredictedPosition(int playerIndex, const RemotePlayerFrame& frame);
+  void updateRemoteSprites(float interpolationFactor);
   void initNetworkHostState();
   void setDeathmatchParticipantActive(int index, bool active);
   void updateDeathmatchLogic(const std::vector<PlayerInput>& inputs);

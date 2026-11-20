@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "base/color.hpp"
 #include "base/spatial_types.hpp"
 #include "base/warnings.hpp"
 #include "data/map.hpp"
@@ -25,6 +26,7 @@
 #include "game_logic/player/damage_system.hpp"
 #include "game_logic/player/interaction_system.hpp"
 #include "game_logic_common/deathmatch_options.hpp"
+#include "game_logic_common/network_world.hpp"
 
 RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
@@ -41,6 +43,25 @@ namespace rigel::game_logic
 
 /** Rows (in tiles) below the split-screen views used for the scoreboard */
 constexpr auto DEATHMATCH_STATUS_ROWS = 4;
+
+
+/** Color tint for each player, so that they can be told apart.
+ *
+ * Player 1 keeps Duke's original colors (no tint). */
+inline std::optional<base::Color> deathmatchPlayerTint(const int playerIndex)
+{
+  switch (playerIndex)
+  {
+    case 1:
+      return base::Color{130, 170, 255, 255};
+    case 2:
+      return base::Color{140, 255, 140, 255};
+    case 3:
+      return base::Color{255, 220, 110, 255};
+    default:
+      return std::nullopt;
+  }
+}
 
 
 /** Everything belonging to one player in a deathmatch.
@@ -74,6 +95,11 @@ struct DeathmatchParticipant
    */
   bool mIsLocal = true;
   base::Size mRemoteViewportSize{32, 20};
+
+  // Network players: Input for the next frame, and the sequence number of
+  // the last input that was applied (for client-side prediction)
+  std::optional<RemotePlayerFrame> mPendingRemoteFrame;
+  std::uint32_t mLastInputSequence = 0;
 
   int mFrags = 0;
   int mDeaths = 0;

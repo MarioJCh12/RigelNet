@@ -119,14 +119,42 @@ public:
   /** Leave the game, letting the host know right away */
   void disconnect();
 
+  /** For testing: Delay all traffic, as if the host was far away.
+   *
+   * Half of the given round-trip time is added to outgoing and incoming
+   * messages each. */
+  void setSimulatedLatency(std::chrono::milliseconds roundTripTime);
+
   /** Messages that arrived during the handshake, after the welcome */
   std::vector<ByteBuffer> takeEarlyMessages();
 
 private:
+  using Clock = std::chrono::steady_clock;
+
+  struct DelayedSend
+  {
+    Clock::time_point mDue;
+    Channel mChannel;
+    ByteBuffer mData;
+    bool mReliable;
+  };
+
+  struct DelayedEvent
+  {
+    Clock::time_point mDue;
+    NetworkEvent mEvent;
+  };
+
+  void sendNow(Channel channel, const ByteBuffer& data, bool reliable);
+
   _ENetHost* mpHost = nullptr;
   _ENetPeer* mpPeer = nullptr;
   WelcomeMessage mWelcome;
   std::vector<ByteBuffer> mEarlyMessages;
+
+  Clock::duration mSimulatedDelay{};
+  std::vector<DelayedSend> mDelayedSends;
+  std::vector<DelayedEvent> mDelayedEvents;
 };
 
 

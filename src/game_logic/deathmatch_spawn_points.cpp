@@ -179,6 +179,12 @@ ReachabilityMap::ReachabilityMap(
 }
 
 
+bool isPlayerPositionFree(const data::map::Map& map, const base::Vec2& position)
+{
+  return isPassable(map, {}, position);
+}
+
+
 bool ReachabilityMap::isReachable(const base::Vec2& position) const
 {
   if (

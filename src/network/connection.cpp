@@ -34,6 +34,7 @@ RIGEL_RESTORE_WARNINGS
 
 #include <loguru.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <mutex>
 #include <stdexcept>
@@ -401,16 +402,26 @@ void NetworkClient::disconnect()
 
 std::vector<NetworkEvent> NetworkClient::poll()
 {
-  std::vector<NetworkEvent> events;
+  const auto now = Clock::now();
+
+  // Simulated latency: Send what's due
+  {
+    auto iDue = std::stable_partition(
+      mDelayedSends.begin(),
+      mDelayedSends.end(),
+      [&](const DelayedSend& s) { return s.mDue <= now; });
+    for (auto it = mDelayedSends.begin(); it != iDue; ++it)
+    {
+      sendNow(it->mChannel, it->mData, it->mReliable);
+    }
+    mDelayedSends.erase(mDelayedSends.begin(), iDue);
+  }
+
+  std::vector<NetworkEvent> received;
 
   for (auto& data : takeEarlyMessages())
   {
-    events.push_back({NetworkEvent::Type::Message, 0, std::move(data)});
-  }
-
-  if (!mpPeer)
-  {
-    return events;
+    received.push_back({NetworkEvent::Type::Message, 0, std::move(data)});
   }
 
   ENetEvent event;
@@ -419,7 +430,7 @@ std::vector<NetworkEvent> NetworkClient::poll()
     switch (event.type)
     {
       case ENET_EVENT_TYPE_RECEIVE:
-        events.push_back(
+        received.push_back(
           {NetworkEvent::Type::Message, 0, packetData(event.packet)});
         enet_packet_destroy(event.packet);
         break;
@@ -427,13 +438,35 @@ std::vector<NetworkEvent> NetworkClient::poll()
       case ENET_EVENT_TYPE_DISCONNECT:
         LOG_F(WARNING, "Lost connection to host");
         mpPeer = nullptr;
-        events.push_back({NetworkEvent::Type::Disconnected, 0, {}});
+        received.push_back({NetworkEvent::Type::Disconnected, 0, {}});
         break;
 
       default:
         break;
     }
   }
+
+  if (mSimulatedDelay == Clock::duration{})
+  {
+    return received;
+  }
+
+  // Simulated latency: Hold back incoming messages until they're due
+  for (auto& event : received)
+  {
+    mDelayedEvents.push_back({now + mSimulatedDelay, std::move(event)});
+  }
+
+  std::vector<NetworkEvent> events;
+  auto iDue = std::stable_partition(
+    mDelayedEvents.begin(),
+    mDelayedEvents.end(),
+    [&](const DelayedEvent& e) { return e.mDue <= now; });
+  for (auto it = mDelayedEvents.begin(); it != iDue; ++it)
+  {
+    events.push_back(std::move(it->mEvent));
+  }
+  mDelayedEvents.erase(mDelayedEvents.begin(), iDue);
 
   return events;
 }
@@ -444,10 +477,36 @@ void NetworkClient::send(
   const ByteBuffer& data,
   const bool reliable)
 {
+  if (mSimulatedDelay != Clock::duration{})
+  {
+    mDelayedSends.push_back(
+      {Clock::now() + mSimulatedDelay, channel, data, reliable});
+    return;
+  }
+
+  sendNow(channel, data, reliable);
+}
+
+
+void NetworkClient::sendNow(
+  const Channel channel,
+  const ByteBuffer& data,
+  const bool reliable)
+{
   if (mpPeer)
   {
     enet_peer_send(mpPeer, channel, makePacket(data, reliable));
   }
+}
+
+
+void NetworkClient::setSimulatedLatency(
+  const std::chrono::milliseconds roundTripTime)
+{
+  mSimulatedDelay =
+    std::chrono::duration_cast<Clock::duration>(roundTripTime) / 2;
+  LOG_F(
+    INFO, "Simulating %d ms of network latency", int(roundTripTime.count()));
 }
 
 

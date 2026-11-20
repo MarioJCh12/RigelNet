@@ -331,6 +331,7 @@ ByteBuffer encode(const InputMessage& message)
   const auto& input = message.mInput;
 
   Writer writer{MessageType::Input};
+  writer.u32(message.mSequence);
   writer.u8(
     (input.mLeft ? 1u : 0u) | (input.mRight ? 2u : 0u) |
     (input.mUp ? 4u : 0u) | (input.mDown ? 8u : 0u));
@@ -339,6 +340,12 @@ ByteBuffer encode(const InputMessage& message)
   writeButton(writer, input.mFire);
   writer.u8(std::uint32_t(std::clamp(message.mViewportSize.width, 0, 255)));
   writer.u8(std::uint32_t(std::clamp(message.mViewportSize.height, 0, 255)));
+  writer.boolean(message.mPredictedPosition.has_value());
+  if (message.mPredictedPosition)
+  {
+    writer.s16(message.mPredictedPosition->x);
+    writer.s16(message.mPredictedPosition->y);
+  }
   return writer.take();
 }
 
@@ -349,6 +356,7 @@ std::optional<InputMessage> decodeInput(const ByteBuffer& message)
   InputMessage result;
   auto& input = result.mInput;
 
+  result.mSequence = reader.u32();
   const auto directions = reader.u8();
   input.mLeft = (directions & 1) != 0;
   input.mRight = (directions & 2) != 0;
@@ -359,6 +367,13 @@ std::optional<InputMessage> decodeInput(const ByteBuffer& message)
   input.mFire = readButton(reader);
   result.mViewportSize.width = int(reader.u8());
   result.mViewportSize.height = int(reader.u8());
+  if (reader.boolean())
+  {
+    base::Vec2 position;
+    position.x = reader.s16();
+    position.y = reader.s16();
+    result.mPredictedPosition = position;
+  }
 
   if (!reader.finishedOk())
   {
@@ -372,6 +387,9 @@ ByteBuffer encode(const NetSnapshot& snapshot)
 {
   Writer writer{MessageType::Snapshot};
   writer.u32(snapshot.mFrame);
+  writer.u32(snapshot.mLastInputSequence);
+  writer.s16(snapshot.mPlayerPosition.x);
+  writer.s16(snapshot.mPlayerPosition.y);
   writer.s16(snapshot.mCameraPosition.x);
   writer.s16(snapshot.mCameraPosition.y);
   writer.s16(snapshot.mScreenShakeOffsetX);
@@ -431,6 +449,9 @@ std::optional<NetSnapshot> decodeSnapshot(const ByteBuffer& message)
   NetSnapshot snapshot;
 
   snapshot.mFrame = reader.u32();
+  snapshot.mLastInputSequence = reader.u32();
+  snapshot.mPlayerPosition.x = reader.s16();
+  snapshot.mPlayerPosition.y = reader.s16();
   snapshot.mCameraPosition.x = reader.s16();
   snapshot.mCameraPosition.y = reader.s16();
   snapshot.mScreenShakeOffsetX = reader.s16();

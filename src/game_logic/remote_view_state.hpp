@@ -17,12 +17,15 @@
 #pragma once
 
 #include "base/warnings.hpp"
+#include "engine/sprite_rendering_system.hpp"
+#include "frontend/game_service_provider.hpp"
 #include "game_logic_common/network_world.hpp"
 
 RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
 RIGEL_RESTORE_WARNINGS
 
+#include <memory>
 #include <vector>
 
 
@@ -34,6 +37,17 @@ struct RemoteViewState
 {
   int mPlayerIndex = 0;
   NetSnapshot mSnapshot;
+
+  // Sprites from the host's snapshot. Our own player is drawn from the
+  // local simulation (prediction) and merged in when rendering.
+  std::vector<engine::SpriteDrawSpec> mHostSprites;
+  int mHostFirstForegroundSprite = 0;
+
+  /** True while our own player is alive and simulated locally */
+  bool mIsPredicting = false;
+  int mLastHealth = 0;
+
+  std::unique_ptr<IGameServiceProvider> mpMutedServiceProvider;
 
   // Same order as DeathmatchState::mDynamicSections on the host
   std::vector<entityx::Entity> mDynamicSections;

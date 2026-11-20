@@ -298,6 +298,13 @@ public:
    * Reset by reSpawnAt().
    */
   bool deathSequenceFinished() const { return mDeathSequenceFinished; }
+
+  /** Used by network clients to silence their locally simulated player,
+   * since the host sends the sounds that actually happened */
+  void setServiceProvider(IGameServiceProvider* pServiceProvider)
+  {
+    mpServiceProvider = pServiceProvider;
+  }
   bool isLookingUp() const;
   bool isCrouching() const;
   bool isRidingElevator() const;

@@ -131,6 +131,7 @@ probarlo en un solo PC, abre dos copias del juego y conecta la segunda a
 | `--host` | Crea una partida en red | — |
 | `--connect <ip>` | Se une a una partida (`ip` o `ip:puerto`) | — |
 | `--port <número>` | Puerto UDP del host | 7777 |
+| `--simulate-lag <ms>` | Solo cliente, para pruebas: añade ese retraso (ida y vuelta) a la conexión | 0 |
 | `--players <2-4>` | Plazas en total, incluido el host | 4 |
 | `--frag-limit`, `--item-respawn`, `--keep-enemies`, `--difficulty` | Igual que en local; solo las usa el host | |
 
@@ -146,9 +147,15 @@ Cosas a tener en cuenta:
   puerto **7777 UDP** en su router hacia su PC, y los demás se conectan a su
   IP pública. Alternativa sin tocar el router: una red privada virtual tipo
   ZeroTier, Tailscale o Radmin VPN, y usar la IP que te da esa red.
-- **Cómo funciona:** el host ejecuta la partida y cada cliente solo muestra
-  lo que el host le manda. Con ping alto, tu personaje responde con un poco
-  de retraso. La siguiente etapa (predicción en el cliente) corregirá eso.
+- **Cómo funciona:** el host ejecuta la partida y decide todo lo que importa:
+  disparos, daño, muertes, objetos y reapariciones. Cada cliente simula su
+  propio Duke en su PC (predicción), así que **tu personaje responde al
+  instante aunque haya ping alto**. Si la simulación del cliente no coincide
+  con la del host (por ejemplo, el host vio un ventilador que te empujó o una
+  puerta cerrada), el cliente se corrige solo. A los demás jugadores los ves
+  con el retraso de la conexión.
+- **Probar el retraso sin Internet:** añade `--simulate-lag 200` al cliente
+  para simular 200 ms de ping, por ejemplo al conectarte a `127.0.0.1`.
 - **Si el host abre el menú (Esc), la partida se pausa para todos.**
 - **Un cliente que sale al menú principal abandona la partida.** Para
   volver a entrar, reinicia el juego con `--connect`.
@@ -302,8 +309,13 @@ indica en qué paso; pásame ese error.
 El modo de un jugador funciona exactamente igual que antes. Todas las
 ramificaciones nuevas solo se activan con `--deathmatch`.
 
-Siguiente paso previsto: predicción del jugador local en los clientes, para
-eliminar la sensación de retraso al jugar por Internet.
+Opciones de depuración: `--debug-input-script <teclas>` reemplaza el teclado
+por una secuencia que se repite (una letra por fotograma: `L`/`R` izquierda y
+derecha, `U`/`D` arriba y abajo, `J` saltar, `F` disparar, otra cosa = nada).
+Sirve para probar el modo en red de forma automática.
+
+Siguientes pasos posibles: crear y unirse a partidas desde el menú del juego,
+y que ascensores y nave funcionen para todos los jugadores.
 
 ## Licencia
 

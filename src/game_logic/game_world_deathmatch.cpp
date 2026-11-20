@@ -66,15 +66,6 @@ constexpr auto ROUND_END_DURATION_FRAMES = 6 * FRAMES_PER_SECOND;
 // regardless.
 constexpr auto MAX_FRAMES_DEAD = 5 * FRAMES_PER_SECOND;
 
-// Players 2 to 4 are tinted so that they can be told apart.
-// Player 1 keeps Duke's original colors.
-const base::Color PLAYER_TINTS[] = {
-  {255, 255, 255, 255},
-  {130, 170, 255, 255},
-  {140, 255, 140, 255},
-  {255, 220, 110, 255},
-};
-
 
 int pvpDamageForProjectile(const components::PlayerProjectile::Type type)
 {
@@ -467,7 +458,8 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
       data::ActorID::Duke_LEFT, state.mPlayer.position());
     assignPlayerComponents(
       playerEntity, engine::components::Orientation::Right);
-    playerEntity.assign<engine::components::TintColor>(PLAYER_TINTS[i]);
+    playerEntity.assign<engine::components::TintColor>(
+      *deathmatchPlayerTint(i));
 
     participant.mpOwnedPlayer = std::make_unique<Player>(
       playerEntity,
@@ -617,7 +609,25 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
       continue;
     }
 
-    const auto input = inputFor(i);
+    auto input = inputFor(i);
+    std::optional<RemotePlayerFrame> remoteFrame;
+
+    if (!participant.mIsLocal)
+    {
+      // Network players move only when their input for a frame has arrived.
+      // This keeps the host's simulation of them in step with the
+      // client's own simulation (prediction), one input at a time.
+      remoteFrame = std::exchange(participant.mPendingRemoteFrame, {});
+      if (!remoteFrame)
+      {
+        continue;
+      }
+
+      if (!dm.mRoundWinner)
+      {
+        input = remoteFrame->mInput;
+      }
+    }
 
     participant.mpInteractionSystem->updatePlayerInteraction(
       input, state.mEntities);
@@ -635,6 +645,11 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
     }
 
     participant.mpPlayer->update(input);
+
+    if (remoteFrame)
+    {
+      applyPredictedPosition(int(i), *remoteFrame);
+    }
 
     participant.mPreviousCameraPosition = participant.mpCamera->position();
     participant.mpCamera->update(input, viewportSizes[i]);

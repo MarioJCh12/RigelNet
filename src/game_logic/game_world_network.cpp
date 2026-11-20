@@ -33,6 +33,8 @@
 
 #include "engine/base_components.hpp"
 #include "engine/sprite_rendering_system.hpp"
+#include "engine/visual_components.hpp"
+#include "frontend/game_service_provider.hpp"
 #include "game_logic/deathmatch_state.hpp"
 #include "game_logic/dynamic_geometry_components.hpp"
 #include "game_logic/remote_view_state.hpp"
@@ -98,6 +100,75 @@ std::vector<NetTileChange> diffMapTiles(
 }
 
 
+/** Passes everything through, except sounds.
+ *
+ * A network client's locally simulated player would otherwise play sounds
+ * twice: Once when simulated locally, and again when the host tells the
+ * client about the sounds that happened in the actual game.
+ */
+class MutedServiceProvider : public IGameServiceProvider
+{
+public:
+  explicit MutedServiceProvider(IGameServiceProvider* pTarget)
+    : mpTarget(pTarget)
+  {
+  }
+
+  void fadeOutScreen() override { mpTarget->fadeOutScreen(); }
+  void fadeInScreen() override { mpTarget->fadeInScreen(); }
+  void playSound(data::SoundId) override { }
+  void stopSound(data::SoundId) override { }
+  void stopAllSounds() override { mpTarget->stopAllSounds(); }
+  void playMusic(const std::string& name) override
+  {
+    mpTarget->playMusic(name);
+  }
+  void stopMusic() override { mpTarget->stopMusic(); }
+  void scheduleGameQuit() override { mpTarget->scheduleGameQuit(); }
+  void switchGamePath(const std::filesystem::path& newGamePath) override
+  {
+    mpTarget->switchGamePath(newGamePath);
+  }
+  void markCurrentFrameAsWidescreen() override
+  {
+    mpTarget->markCurrentFrameAsWidescreen();
+  }
+  bool isSharewareVersion() const override
+  {
+    return mpTarget->isSharewareVersion();
+  }
+  const CommandLineOptions& commandLineOptions() const override
+  {
+    return mpTarget->commandLineOptions();
+  }
+  const GameControllerInfo& gameControllerInfo() const override
+  {
+    return mpTarget->gameControllerInfo();
+  }
+
+private:
+  IGameServiceProvider* mpTarget;
+};
+
+
+void setHealth(data::PersistentPlayerState& model, const int health)
+{
+  model.giveHealth(data::MAX_HEALTH);
+  const auto difference = model.health() - health;
+  if (difference > 0)
+  {
+    model.takeDamage(difference);
+  }
+}
+
+
+void setPlayerSpriteVisible(Player& player, const bool visible)
+{
+  auto entity = player.entity();
+  entity.component<engine::components::Sprite>()->mShow = visible;
+}
+
+
 std::vector<entityx::Entity>
   collectDynamicSections(entityx::EntityManager& entities)
 {
@@ -155,6 +226,52 @@ void GameWorld::disconnectRemotePlayer(const int playerIndex)
 }
 
 
+void GameWorld::setRemotePlayerFrame(
+  const int playerIndex,
+  const RemotePlayerFrame& frame)
+{
+  if (
+    !mpDeathmatch || playerIndex < 0 ||
+    playerIndex >= int(mpDeathmatch->mParticipants.size()))
+  {
+    return;
+  }
+
+  mpDeathmatch->mParticipants[playerIndex].mPendingRemoteFrame = frame;
+}
+
+
+void GameWorld::applyPredictedPosition(
+  const int playerIndex,
+  const RemotePlayerFrame& frame)
+{
+  // The host is authoritative: The client's own simulation of its player
+  // normally arrives at the same position as ours, since both apply the
+  // same inputs in the same order. When it doesn't, that's because of
+  // something only the host simulates (e.g. being pushed by a fan, or a
+  // door that's closed). Our position is then the correct one, and the
+  // client corrects itself when it learns about it via the snapshot.
+  // We never take over the client's position, so that players can't move
+  // through walls by sending fake positions.
+  auto& participant = mpDeathmatch->mParticipants[playerIndex];
+  participant.mLastInputSequence = frame.mSequence;
+
+  if (
+    frame.mPredictedPosition &&
+    *frame.mPredictedPosition != participant.mpPlayer->position())
+  {
+    LOG_F(
+      1,
+      "Player %d prediction differs: client %d,%d host %d,%d",
+      playerIndex + 1,
+      frame.mPredictedPosition->x,
+      frame.mPredictedPosition->y,
+      participant.mpPlayer->position().x,
+      participant.mpPlayer->position().y);
+  }
+}
+
+
 void GameWorld::setRemoteViewportSize(
   const int playerIndex,
   const base::Size& size)
@@ -182,6 +299,8 @@ NetSnapshot GameWorld::captureSnapshot(const int playerIndex)
 
   NetSnapshot snapshot;
   snapshot.mFrame = dm.mFrameCounter;
+  snapshot.mLastInputSequence = participant.mLastInputSequence;
+  snapshot.mPlayerPosition = participant.mpPlayer->position();
   snapshot.mCameraPosition = participant.mpCamera->position();
   snapshot.mScreenShakeOffsetX = state.mScreenShakeOffsetX;
   snapshot.mScreenFlashColor = state.mScreenFlashColor;
@@ -203,11 +322,24 @@ NetSnapshot GameWorld::captureSnapshot(const int playerIndex)
   // Collect the sprites visible to this player. This reuses the sprite
   // rendering system's own logic, which is fine since it collects sprites
   // again before drawing anything on this computer.
+  //
+  // The client draws its own player while it's alive, since it simulates it
+  // locally. So we leave it out here.
+  auto playerEntity = participant.mpPlayer->entity();
+  auto& playerSprite = *playerEntity.component<engine::components::Sprite>();
+  const auto playerSpriteWasShown = playerSprite.mShow;
+  if (!snapshot.mIsDead)
+  {
+    playerSprite.mShow = false;
+  }
+
   state.mSpriteRenderingSystem.update(
     state.mEntities,
     participant.mRemoteViewportSize,
     snapshot.mCameraPosition,
     1.0f);
+
+  playerSprite.mShow = playerSpriteWasShown;
 
   const auto& sprites = state.mSpriteRenderingSystem.sprites();
   snapshot.mSprites.reserve(sprites.size());
@@ -294,21 +426,56 @@ void GameWorld::enableRemoteView(const int playerIndex)
 {
   LOG_F(INFO, "Enabling remote view as player %d", playerIndex + 1);
 
+  auto& state = *mpState;
+
   mpRemoteView = std::make_unique<RemoteViewState>();
   mpRemoteView->mPlayerIndex = playerIndex;
-  mpRemoteView->mDynamicSections = collectDynamicSections(mpState->mEntities);
-  mpRemoteView->mSnapshot.mCameraPosition = mpState->mCamera.position();
+  mpRemoteView->mDynamicSections = collectDynamicSections(state.mEntities);
+  mpRemoteView->mSnapshot.mCameraPosition = state.mCamera.position();
 
-  // Nothing is shown until the first snapshot arrives
-  mpState->mSpriteRenderingSystem.setSprites({}, 0);
+  // Our own player is simulated locally for responsiveness (prediction),
+  // the rest comes from the host. We re-use the single player's Player
+  // object for this, but silence it.
+  mpRemoteView->mpMutedServiceProvider =
+    std::make_unique<MutedServiceProvider>(mpServiceProvider);
+  state.mPlayer.setServiceProvider(mpRemoteView->mpMutedServiceProvider.get());
+
+  // The host tells us which sprites to draw. Remove all others, so that the
+  // only sprite left in our own world is our player.
+  const auto playerEntity = state.mPlayer.entity();
+  std::vector<entityx::Entity> toRemove;
+  state.mEntities.each<engine::components::Sprite>(
+    [&](entityx::Entity entity, const engine::components::Sprite&)
+    {
+      if (entity != playerEntity)
+      {
+        toRemove.push_back(entity);
+      }
+    });
+  for (auto entity : toRemove)
+  {
+    entity.destroy();
+  }
+
+  if (const auto tint = deathmatchPlayerTint(playerIndex))
+  {
+    auto entity = state.mPlayer.entity();
+    entity.assign<engine::components::TintColor>(*tint);
+  }
+
+  // Wait for the first snapshot to know where we are
+  setPlayerSpriteVisible(state.mPlayer, false);
+  state.mSpriteRenderingSystem.setSprites({}, 0);
 }
 
 
-void GameWorld::updateRemoteView()
+void GameWorld::updateRemoteView(const PlayerInput& input)
 {
-  // No game logic runs on network clients. We only keep animations going
-  // which are not part of what the host sends.
+  // The game runs on the host. We only simulate our own player's movement
+  // (prediction), and keep animations going which are not part of what the
+  // host sends.
   auto& state = *mpState;
+  auto& remoteView = *mpRemoteView;
 
   mMessageDisplay.update();
   state.mMapRenderer.updateAnimatedMapTiles();
@@ -317,6 +484,104 @@ void GameWorld::updateRemoteView()
   if (state.mWaterAnimStep >= 4)
   {
     state.mWaterAnimStep = 0;
+  }
+
+  if (!remoteView.mIsPredicting)
+  {
+    return;
+  }
+
+  // Health, weapons etc. are decided by the host. Keep our copy in sync,
+  // so that our player looks and moves the same way. Our player never
+  // dies locally: The host tells us when that happens.
+  const auto& snapshot = remoteView.mSnapshot;
+  auto& model = *mpPersistentPlayerState;
+  setHealth(model, std::max(1, snapshot.mHealth));
+  if (static_cast<int>(model.weapon()) != snapshot.mWeapon)
+  {
+    model.switchToWeapon(static_cast<data::WeaponType>(snapshot.mWeapon));
+  }
+  model.setAmmo(snapshot.mAmmo);
+
+  // Resets per-frame sprite effects like flashing white. Only our player is
+  // left in our world at this point, so this doesn't affect anything else.
+  engine::updateAnimatedSprites(state.mEntities);
+
+  state.mPlayer.update(input);
+
+  // Shooting creates projectiles and effects in our world, but the real
+  // ones come from the host
+  const auto playerEntity = state.mPlayer.entity();
+  std::vector<entityx::Entity> toRemove;
+  state.mEntities.each<engine::components::Sprite>(
+    [&](entityx::Entity entity, const engine::components::Sprite&)
+    {
+      if (entity != playerEntity)
+      {
+        toRemove.push_back(entity);
+      }
+    });
+  for (auto entity : toRemove)
+  {
+    entity.destroy();
+  }
+
+  state.mPreviousCameraPosition = state.mCamera.position();
+  state.mCamera.update(input, remoteViewportSize());
+}
+
+
+void GameWorld::updateRemoteSprites(const float interpolationFactor)
+{
+  auto& state = *mpState;
+  auto& remoteView = *mpRemoteView;
+
+  std::vector<engine::SpriteDrawSpec> localSprites;
+  if (remoteView.mIsPredicting)
+  {
+    state.mSpriteRenderingSystem.update(
+      state.mEntities,
+      remoteViewportSize(),
+      state.mCamera.position(),
+      interpolationFactor);
+    localSprites = state.mSpriteRenderingSystem.sprites();
+  }
+
+  // Our player goes on top of the host's regular sprites, but below the
+  // ones that are drawn in front of the map's foreground
+  const auto& hostSprites = remoteView.mHostSprites;
+  const auto firstForeground = std::clamp(
+    remoteView.mHostFirstForegroundSprite, 0, int(hostSprites.size()));
+
+  std::vector<engine::SpriteDrawSpec> sprites;
+  sprites.reserve(hostSprites.size() + localSprites.size());
+  sprites.insert(
+    sprites.end(), hostSprites.begin(), hostSprites.begin() + firstForeground);
+  sprites.insert(sprites.end(), localSprites.begin(), localSprites.end());
+  sprites.insert(
+    sprites.end(), hostSprites.begin() + firstForeground, hostSprites.end());
+
+  state.mSpriteRenderingSystem.setSprites(
+    std::move(sprites), firstForeground + int(localSprites.size()));
+}
+
+
+std::optional<base::Vec2> GameWorld::predictedPlayerPosition() const
+{
+  if (!mpRemoteView || !mpRemoteView->mIsPredicting)
+  {
+    return std::nullopt;
+  }
+
+  return mpState->mPlayer.position();
+}
+
+
+void GameWorld::correctPrediction(const base::Vec2& offset)
+{
+  if (mpRemoteView && mpRemoteView->mIsPredicting)
+  {
+    mpState->mPlayer.position() += offset;
   }
 }
 
@@ -346,8 +611,42 @@ void GameWorld::applySnapshot(const NetSnapshot& snapshot)
 
     sprites.push_back(spec);
   }
-  state.mSpriteRenderingSystem.setSprites(
-    std::move(sprites), snapshot.mFirstForegroundSprite);
+  remoteView.mHostSprites = std::move(sprites);
+  remoteView.mHostFirstForegroundSprite = snapshot.mFirstForegroundSprite;
+
+  // Our own player: Death and respawning are decided by the host
+  auto& player = state.mPlayer;
+  if (snapshot.mIsDead)
+  {
+    if (remoteView.mIsPredicting)
+    {
+      // The host now shows our death animation
+      remoteView.mIsPredicting = false;
+      setPlayerSpriteVisible(player, false);
+    }
+  }
+  else if (!remoteView.mIsPredicting)
+  {
+    // First snapshot, or respawned: Start simulating from the host's state
+    player.reSpawnAt(snapshot.mPlayerPosition);
+    setPlayerSpriteVisible(player, true);
+    remoteView.mIsPredicting = true;
+    remoteView.mLastHealth = snapshot.mHealth;
+
+    state.mCamera.recenter(remoteViewportSize());
+    state.mCamera.centerViewOnPlayer();
+    state.mPreviousCameraPosition = state.mCamera.position();
+  }
+  else
+  {
+    // Getting hurt: Show the blinking effect on our player as well
+    if (snapshot.mHealth < remoteView.mLastHealth)
+    {
+      setHealth(*mpPersistentPlayerState, data::MAX_HEALTH);
+      player.takeDamage(1);
+    }
+    remoteView.mLastHealth = snapshot.mHealth;
+  }
 
   // Dynamic map geometry: Update the ones still present on the host, remove
   // the others

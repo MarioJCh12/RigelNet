@@ -129,6 +129,7 @@ set(core_sources
     frontend/game_session_mode.cpp
     frontend/game_session_mode.hpp
     frontend/input_handler.cpp
+    frontend/network_session.cpp
     frontend/input_handler.hpp
     frontend/intro_demo_loop_mode.cpp
     frontend/intro_demo_loop_mode.hpp
@@ -230,6 +231,9 @@ set(core_sources
     game_logic/game_world.cpp
     game_logic/deathmatch_spawn_points.cpp
     game_logic/game_world_deathmatch.cpp
+    game_logic/game_world_network.cpp
+    network/connection.cpp
+    network/protocol.cpp
     game_logic/game_world.hpp
     game_logic/global_dependencies.hpp
     game_logic/hazards/lava_fountain.cpp
@@ -398,6 +402,7 @@ target_link_libraries(rigel_core
 
     PRIVATE
     dbopl
+    enet
     nuked-opl3
     speex_resampler
     static_vector

@@ -39,6 +39,13 @@ struct DeathmatchOptions
 
   /** Seconds until a picked-up item or destroyed item box re-appears */
   int mItemRespawnSeconds = 20;
+
+  /** How many of the players play on this computer (split-screen).
+   *
+   * The remaining player slots are for players joining over the network.
+   * 0 means all players are local.
+   */
+  int mNumLocalPlayers = 0;
 };
 
 } // namespace rigel::game_logic

@@ -29,6 +29,7 @@
 #include "game_logic/damage_components.hpp"
 #include "game_logic/global_dependencies.hpp"
 #include "game_logic_common/igame_world.hpp"
+#include "game_logic_common/network_world.hpp"
 #include "game_logic_common/input.hpp"
 #include "ui/hud_renderer.hpp"
 #include "ui/ingame_message_display.hpp"
@@ -62,8 +63,12 @@ namespace rigel::game_logic
 
 struct WorldState;
 struct DeathmatchState;
+struct RemoteViewState;
 
-class GameWorld : public IGameWorld, public entityx::Receiver<GameWorld>
+class GameWorld
+  : public IGameWorld
+  , public INetworkWorld
+  , public entityx::Receiver<GameWorld>
 {
 public:
   GameWorld(
@@ -100,6 +105,21 @@ public:
   void enableDeathmatch(const DeathmatchOptions& options) override;
   void
     updateGameLogicMultiplayer(const std::vector<PlayerInput>& inputs) override;
+
+  // INetworkWorld (implemented in game_world_network.cpp)
+  std::optional<int> findFreeRemoteSlot() const override;
+  void connectRemotePlayer(int playerIndex) override;
+  void disconnectRemotePlayer(int playerIndex) override;
+  void
+    setRemoteViewportSize(int playerIndex, const base::Size& size) override;
+  NetSnapshot captureSnapshot(int playerIndex) override;
+  NetWorldEvents collectNetEvents() override;
+  std::vector<NetTileChange> allTileChanges() const override;
+  void enableRemoteView(int playerIndex) override;
+  void applySnapshot(const NetSnapshot& snapshot) override;
+  void applyTileChanges(const std::vector<NetTileChange>& changes) override;
+  void showRemoteMessage(const std::string& message) override;
+  base::Size remoteViewportSize() const override;
   void render(float interpolationFactor = 0.0f) override;
   void processEndOfFrameActions() override;
   void updateBackdropAutoScrolling(engine::TimeDelta dt) override;
@@ -162,12 +182,17 @@ private:
   // Deathmatch (implemented in game_world_deathmatch.cpp)
   struct DeathmatchViewport
   {
+    int mParticipant;
     base::Vec2 mOffset; // in tiles, relative to the world area's top-left
     base::Size mSize; // in tiles
   };
 
   base::Size deathmatchWorldAreaSize() const;
   std::vector<DeathmatchViewport> deathmatchViewports() const;
+  std::vector<base::Size> deathmatchViewportSizes() const;
+  void updateRemoteView();
+  void initNetworkHostState();
+  void setDeathmatchParticipantActive(int index, bool active);
   void updateDeathmatchLogic(const std::vector<PlayerInput>& inputs);
   void updateDeathmatchRules();
   void applyPlayerVsPlayerDamage();
@@ -176,6 +201,31 @@ private:
   void restartDeathmatchRound();
   base::Vec2 chooseDeathmatchSpawnPoint(int forPlayerIndex);
   void drawDeathmatchStatus(const std::vector<DeathmatchViewport>& viewports);
+
+  struct DeathmatchPlayerStatus
+  {
+    int mPlayerIndex;
+    bool mIsDead;
+    int mHealth;
+    data::WeaponType mWeapon;
+    int mAmmo;
+    bool mWeaponConsumesAmmo;
+    int mFrags;
+  };
+
+  struct DeathmatchScore
+  {
+    bool mIsActive;
+    int mFrags;
+    int mDeaths;
+  };
+
+  void drawDeathmatchPlayerStatus(
+    const base::Vec2& offset,
+    const DeathmatchPlayerStatus& status);
+  void drawDeathmatchScoreboard(
+    const std::vector<DeathmatchScore>& scores,
+    int fragLimit);
 
   struct QuickSaveData
   {
@@ -210,6 +260,7 @@ private:
   // Must come after mpState, so that it's destroyed first (it references
   // objects owned by the world state)
   std::unique_ptr<DeathmatchState> mpDeathmatch;
+  std::unique_ptr<RemoteViewState> mpRemoteView;
 };
 
 } // namespace rigel::game_logic

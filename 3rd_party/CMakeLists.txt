@@ -43,4 +43,12 @@ add_subdirectory(imgui-filebrowser EXCLUDE_FROM_ALL)
 add_subdirectory(nuked-opl3 EXCLUDE_FROM_ALL)
 add_subdirectory(loguru EXCLUDE_FROM_ALL)
 
+# Networking for deathmatch (not available in the WebAssembly build)
+if (NOT EMSCRIPTEN)
+    add_subdirectory(enet EXCLUDE_FROM_ALL)
+    target_include_directories(enet INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}/enet/include)
+    rigel_disable_warnings(enet)
+endif()
+
 rigel_disable_warnings(entityx)

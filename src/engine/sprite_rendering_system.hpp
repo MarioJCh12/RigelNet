@@ -92,6 +92,18 @@ public:
 
   bool cloakEffectSpritesVisible() const { return mCloakEffectSpritesVisible; }
 
+  /** The sprites collected by the last update(), in draw order */
+  const std::vector<SpriteDrawSpec>& sprites() const { return mSprites; }
+
+  /** Index of the first sprite drawn on top of the map's foreground */
+  int firstForegroundSpriteIndex() const;
+
+  /** Replace the sprites to draw, instead of collecting them via update().
+   *
+   * Used by network clients, which get the list of sprites from the host.
+   */
+  void setSprites(std::vector<SpriteDrawSpec> sprites, int firstForeground);
+
   void renderRegularSprites(const SpecialEffectsRenderer& fx) const;
   void renderForegroundSprites(const SpecialEffectsRenderer& fx) const;
 

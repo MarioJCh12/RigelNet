@@ -363,6 +363,30 @@ void SpriteRenderingSystem::update(
 }
 
 
+int SpriteRenderingSystem::firstForegroundSpriteIndex() const
+{
+  return int(std::distance(
+    mSprites.cbegin(),
+    std::vector<SpriteDrawSpec>::const_iterator{miForegroundSprites}));
+}
+
+
+void SpriteRenderingSystem::setSprites(
+  std::vector<SpriteDrawSpec> sprites,
+  const int firstForeground)
+{
+  mSprites = std::move(sprites);
+  miForegroundSprites = std::next(
+    mSprites.begin(),
+    std::clamp(firstForeground, 0, int(mSprites.size())));
+
+  mCloakEffectSpritesVisible = std::any_of(
+    mSprites.begin(), mSprites.end(), [](const SpriteDrawSpec& spec) {
+      return spec.mUseCloakEffect;
+    });
+}
+
+
 void SpriteRenderingSystem::renderRegularSprites(
   const SpecialEffectsRenderer& fx) const
 {

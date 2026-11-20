@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <variant>
 
@@ -52,6 +53,11 @@ public:
     MessagePriority priority = MessagePriority::Normal);
 
   void update();
+
+  /** Increases by one each time a new message is shown. Lets network hosts
+   * find out which messages to forward to clients. */
+  std::uint32_t messageCounter() const { return mMessageCounter; }
+  const std::string& currentMessage() const { return mMessage; }
   void render();
 
 private:
@@ -95,6 +101,7 @@ private:
 
   State mState;
   std::string mMessage;
+  std::uint32_t mMessageCounter = 0;
   // TODO: Use a string_view instead of a second string once upgraded to C++ 17
   std::string mPrintedMessage;
   MessagePriority mCurrentPriority = MessagePriority::Normal;

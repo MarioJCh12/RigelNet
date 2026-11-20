@@ -22,6 +22,7 @@
 #include "data/saved_game.hpp"
 #include "frontend/game_mode.hpp"
 #include "frontend/input_handler.hpp"
+#include "frontend/network_session.hpp"
 #include "game_logic_common/igame_world.hpp"
 #include "game_logic_common/input.hpp"
 #include "ui/ingame_menu.hpp"
@@ -66,7 +67,12 @@ private:
 
   GameMode::Context mContext;
 
+  // The game world talks to this instead of the real service provider, so
+  // that network hosts can find out which sounds to send to clients
+  SoundRecordingServiceProvider mServiceProviderProxy;
+
   std::unique_ptr<game_logic::IGameWorld> mpWorld;
+  std::unique_ptr<NetworkSession> mpNetworkSession;
   InputHandler mInputHandler;
 
   // Input for players 2 and up in local multiplayer (empty otherwise)

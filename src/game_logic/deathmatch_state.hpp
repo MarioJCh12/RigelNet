@@ -66,6 +66,15 @@ struct DeathmatchParticipant
 
   base::Vec2 mPreviousCameraPosition;
 
+  /** Inactive players are empty network slots: Not in the game world. */
+  bool mIsActive = true;
+
+  /** Local players are shown on this computer's screen. Remote players are
+   * controlled over the network, their view size is reported by the client.
+   */
+  bool mIsLocal = true;
+  base::Size mRemoteViewportSize{32, 20};
+
   int mFrags = 0;
   int mDeaths = 0;
 
@@ -96,6 +105,16 @@ struct DeathmatchState
   /** Set while the end-of-round screen is showing */
   std::optional<int> mRoundWinner;
   int mFramesSinceRoundEnd = 0;
+
+  // Network hosting: map state for sending changes to clients
+  std::vector<std::uint32_t> mInitialMapTiles;
+  std::vector<std::uint32_t> mLastSentMapTiles;
+  std::uint32_t mLastSentMessageCounter = 0;
+  std::uint32_t mFrameCounter = 0;
+
+  // Pieces of dynamic map geometry, in a fixed order that's the same on host
+  // and clients
+  std::vector<entityx::Entity> mDynamicSections;
 
   /** Own random sequence, so that we don't disturb the game's RNG */
   std::uint32_t mRandomState = 0x2545F491u;

@@ -226,31 +226,105 @@ base::Size GameWorld::deathmatchWorldAreaSize() const
 auto GameWorld::deathmatchViewports() const -> std::vector<DeathmatchViewport>
 {
   const auto area = deathmatchWorldAreaSize();
-  const auto numPlayers = int(mpDeathmatch->mParticipants.size());
+  const auto& participants = mpDeathmatch->mParticipants;
+
+  // Only players on this computer get a view on screen. Network players
+  // are drawn on their own computers.
+  std::vector<int> localPlayers;
+  for (auto i = 0; i < int(participants.size()); ++i)
+  {
+    if (participants[i].mIsLocal)
+    {
+      localPlayers.push_back(i);
+    }
+  }
+
+  if (localPlayers.size() <= 1)
+  {
+    return {{localPlayers.empty() ? 0 : localPlayers[0], {0, 0}, area}};
+  }
 
   // Leave one tile of space between the views
   const auto leftWidth = (area.width - 1) / 2;
   const auto rightX = leftWidth + 1;
   const auto rightWidth = area.width - rightX;
 
-  if (numPlayers <= 2)
+  std::vector<DeathmatchViewport> layout;
+  if (localPlayers.size() == 2)
   {
-    return {
-      {{0, 0}, {leftWidth, area.height}},
-      {{rightX, 0}, {rightWidth, area.height}}};
+    layout = {
+      {0, {0, 0}, {leftWidth, area.height}},
+      {0, {rightX, 0}, {rightWidth, area.height}}};
+  }
+  else
+  {
+    const auto topHeight = (area.height - 1) / 2;
+    const auto bottomY = topHeight + 1;
+    const auto bottomHeight = area.height - bottomY;
+
+    layout = {
+      {0, {0, 0}, {leftWidth, topHeight}},
+      {0, {rightX, 0}, {rightWidth, topHeight}},
+      {0, {0, bottomY}, {leftWidth, bottomHeight}},
+      {0, {rightX, bottomY}, {rightWidth, bottomHeight}}};
+    layout.resize(localPlayers.size());
   }
 
-  const auto topHeight = (area.height - 1) / 2;
-  const auto bottomY = topHeight + 1;
-  const auto bottomHeight = area.height - bottomY;
+  for (auto i = 0u; i < layout.size(); ++i)
+  {
+    layout[i].mParticipant = localPlayers[i];
+  }
 
-  std::vector<DeathmatchViewport> result{
-    {{0, 0}, {leftWidth, topHeight}},
-    {{rightX, 0}, {rightWidth, topHeight}},
-    {{0, bottomY}, {leftWidth, bottomHeight}},
-    {{rightX, bottomY}, {rightWidth, bottomHeight}}};
-  result.resize(numPlayers);
+  return layout;
+}
+
+
+std::vector<base::Size> GameWorld::deathmatchViewportSizes() const
+{
+  const auto& participants = mpDeathmatch->mParticipants;
+
+  std::vector<base::Size> result;
+  for (const auto& participant : participants)
+  {
+    result.push_back(participant.mRemoteViewportSize);
+  }
+
+  for (const auto& viewport : deathmatchViewports())
+  {
+    result[viewport.mParticipant] = viewport.mSize;
+  }
+
   return result;
+}
+
+
+void GameWorld::setDeathmatchParticipantActive(
+  const int index,
+  const bool active)
+{
+  auto& participant = mpDeathmatch->mParticipants[index];
+  if (participant.mIsActive == active)
+  {
+    return;
+  }
+
+  participant.mIsActive = active;
+  participant.mFrags = 0;
+  participant.mDeaths = 0;
+
+  if (active)
+  {
+    respawnDeathmatchPlayer(index);
+    mMessageDisplay.setMessage(
+      "PLAYER " + std::to_string(index + 1) + " JOINED THE GAME");
+  }
+  else
+  {
+    auto playerEntity = participant.mpPlayer->entity();
+    playerEntity.component<engine::components::Sprite>()->mShow = false;
+    mMessageDisplay.setMessage(
+      "PLAYER " + std::to_string(index + 1) + " LEFT THE GAME");
+  }
 }
 
 
@@ -272,6 +346,9 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
     options.mNumPlayers, MIN_DEATHMATCH_PLAYERS, MAX_DEATHMATCH_PLAYERS);
   dm.mOptions.mFragLimit = std::max(1, options.mFragLimit);
   dm.mOptions.mItemRespawnSeconds = std::max(1, options.mItemRespawnSeconds);
+  dm.mOptions.mNumLocalPlayers = options.mNumLocalPlayers <= 0
+    ? dm.mOptions.mNumPlayers
+    : std::min(options.mNumLocalPlayers, dm.mOptions.mNumPlayers);
 
   mpQuickSave.reset();
   state.mActivatedCheckpoint.reset();
@@ -432,16 +509,33 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
   mpPersistentPlayerState->tutorialMessages() =
     mPlayerModelAtLevelStart.tutorialMessages();
 
-  for (auto i = 1; i < dm.mOptions.mNumPlayers; ++i)
+  // Slots beyond the local players are for network players. They stay
+  // empty until someone connects.
+  for (auto i = 0; i < dm.mOptions.mNumPlayers; ++i)
   {
-    respawnDeathmatchPlayer(i);
+    auto& participant = dm.mParticipants[i];
+    participant.mIsLocal = i < dm.mOptions.mNumLocalPlayers;
+    participant.mIsActive = participant.mIsLocal;
   }
 
-  const auto viewports = deathmatchViewports();
+  for (auto i = 1; i < dm.mOptions.mNumPlayers; ++i)
+  {
+    if (dm.mParticipants[i].mIsActive)
+    {
+      respawnDeathmatchPlayer(i);
+    }
+    else
+    {
+      auto playerEntity = dm.mParticipants[i].mpPlayer->entity();
+      playerEntity.component<engine::components::Sprite>()->mShow = false;
+    }
+  }
+
+  const auto viewportSizes = deathmatchViewportSizes();
   for (auto i = 0u; i < dm.mParticipants.size(); ++i)
   {
     auto& participant = dm.mParticipants[i];
-    participant.mpCamera->recenter(viewports[i].mSize);
+    participant.mpCamera->recenter(viewportSizes[i]);
     participant.mpCamera->centerViewOnPlayer();
     participant.mPreviousCameraPosition = participant.mpCamera->position();
   }
@@ -450,6 +544,8 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
   mMessageDisplay.setMessage(
     "DEATHMATCH! FIRST TO " + std::to_string(dm.mOptions.mFragLimit) +
     " KILLS WINS");
+
+  initNetworkHostState();
 
   LOG_F(INFO, "Deathmatch enabled with %d players", dm.mOptions.mNumPlayers);
 }
@@ -503,7 +599,7 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
 
   updateMotionSmoothingStates();
 
-  const auto viewports = deathmatchViewports();
+  const auto viewportSizes = deathmatchViewportSizes();
 
   state.mMapRenderer.updateAnimatedMapTiles();
   engine::updateAnimatedSprites(state.mEntities);
@@ -516,6 +612,11 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
   for (auto i = 0u; i < dm.mParticipants.size(); ++i)
   {
     auto& participant = dm.mParticipants[i];
+    if (!participant.mIsActive)
+    {
+      continue;
+    }
+
     const auto input = inputFor(i);
 
     participant.mpInteractionSystem->updatePlayerInteraction(
@@ -536,7 +637,7 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
     participant.mpPlayer->update(input);
 
     participant.mPreviousCameraPosition = participant.mpCamera->position();
-    participant.mpCamera->update(input, viewports[i].mSize);
+    participant.mpCamera->update(input, viewportSizes[i]);
   }
 
   state.mPreviousCameraPosition = dm.mParticipants[0].mPreviousCameraPosition;
@@ -546,8 +647,11 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
   std::vector<base::Rect<int>> activeRegions;
   for (auto i = 0u; i < dm.mParticipants.size(); ++i)
   {
-    activeRegions.push_back(BoundingBox{
-      dm.mParticipants[i].mpCamera->position(), viewports[i].mSize});
+    if (dm.mParticipants[i].mIsActive)
+    {
+      activeRegions.push_back(BoundingBox{
+        dm.mParticipants[i].mpCamera->position(), viewportSizes[i]});
+    }
   }
 
   engine::markActiveEntities(state.mEntities, activeRegions);
@@ -555,7 +659,7 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
     state.mEntities,
     PerFrameState{
       inputFor(0),
-      viewports[0].mSize,
+      viewportSizes[0],
       state.mRadarDishCounter.numRadarDishes(),
       state.mIsOddFrame,
       state.mEarthQuakeEffect && state.mEarthQuakeEffect->isQuaking()});
@@ -565,12 +669,18 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
   state.mItemContainerSystem.updateItemBounce(state.mEntities);
   for (auto& participant : dm.mParticipants)
   {
-    participant.mpInteractionSystem->updateItemCollection(state.mEntities);
+    if (participant.mIsActive)
+    {
+      participant.mpInteractionSystem->updateItemCollection(state.mEntities);
+    }
   }
 
   for (auto& participant : dm.mParticipants)
   {
-    participant.mpDamageSystem->update(state.mEntities);
+    if (participant.mIsActive)
+    {
+      participant.mpDamageSystem->update(state.mEntities);
+    }
   }
 
   applyPlayerVsPlayerDamage();
@@ -588,6 +698,8 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
 
   updateDeathmatchRules();
   updateItemRespawning();
+
+  ++dm.mFrameCounter;
 
   state.mIsOddFrame = !state.mIsOddFrame;
 }
@@ -638,7 +750,7 @@ void GameWorld::applyPlayerVsPlayerDamage()
       {
         auto& target = participants[i];
         if (
-          (shooterIndex && *shooterIndex == int(i)) ||
+          (shooterIndex && *shooterIndex == int(i)) || !target.mIsActive ||
           target.mpPlayer->isDead())
         {
           continue;
@@ -696,7 +808,7 @@ void GameWorld::updateDeathmatchRules()
     auto& participant = participants[i];
     auto& player = *participant.mpPlayer;
 
-    if (!player.isDead())
+    if (!participant.mIsActive || !player.isDead())
     {
       continue;
     }
@@ -788,7 +900,9 @@ base::Vec2 GameWorld::chooseDeathmatchSpawnPoint(const int forPlayerIndex)
     for (auto i = 0u; i < dm.mParticipants.size(); ++i)
     {
       const auto& other = dm.mParticipants[i];
-      if (int(i) == forPlayerIndex || other.mpPlayer->isDead())
+      if (
+        int(i) == forPlayerIndex || !other.mIsActive ||
+        other.mpPlayer->isDead())
       {
         continue;
       }
@@ -855,7 +969,10 @@ void GameWorld::restartDeathmatchRound()
 
   for (auto i = 0; i < int(dm.mParticipants.size()); ++i)
   {
-    respawnDeathmatchPlayer(i);
+    if (dm.mParticipants[i].mIsActive)
+    {
+      respawnDeathmatchPlayer(i);
+    }
   }
 
   mMessageDisplay.setMessage("NEW ROUND - FIGHT!", ui::MessagePriority::Menu);
@@ -868,47 +985,79 @@ void GameWorld::drawDeathmatchStatus(
   const auto& dm = *mpDeathmatch;
 
   // Per-player status in the top-left corner of each view
-  for (auto i = 0u; i < viewports.size(); ++i)
+  for (const auto& viewport : viewports)
   {
-    const auto& participant = dm.mParticipants[i];
+    const auto& participant = dm.mParticipants[viewport.mParticipant];
     const auto& model = *participant.mpModel;
-    const auto& offset = viewports[i].mOffset;
 
-    const auto healthText = participant.mpPlayer->isDead()
-      ? std::string{"DEAD"}
-      : "HP " + std::to_string(model.health());
-    mTextRenderer.drawText(
-      offset.x,
-      offset.y,
-      "P" + std::to_string(i + 1) + " " + healthText + " K" +
-        std::to_string(participant.mFrags));
-
-    auto weaponText = std::string{shortWeaponName(model.weapon())};
-    if (model.currentWeaponConsumesAmmo())
-    {
-      weaponText += " " + std::to_string(model.ammo());
-    }
-    mTextRenderer.drawText(offset.x, offset.y + 1, weaponText);
+    drawDeathmatchPlayerStatus(
+      viewport.mOffset,
+      DeathmatchPlayerStatus{
+        viewport.mParticipant,
+        participant.mpPlayer->isDead(),
+        model.health(),
+        model.weapon(),
+        model.ammo(),
+        model.currentWeaponConsumesAmmo(),
+        participant.mFrags});
   }
 
-  // Scoreboard below the views
-  const auto area = deathmatchWorldAreaSize();
-  const auto scoreboardY = area.height + 1;
-
-  std::string scores;
+  std::vector<DeathmatchScore> scores;
   for (auto i = 0u; i < dm.mParticipants.size(); ++i)
   {
     const auto& participant = dm.mParticipants[i];
-    scores += "P" + std::to_string(i + 1) + ":" +
-      std::to_string(participant.mFrags) + "/" +
-      std::to_string(participant.mDeaths) + "  ";
+    scores.push_back(DeathmatchScore{
+      participant.mIsActive, participant.mFrags, participant.mDeaths});
   }
 
-  mTextRenderer.drawText(1, scoreboardY, scores);
+  drawDeathmatchScoreboard(scores, dm.mOptions.mFragLimit);
+}
+
+
+void GameWorld::drawDeathmatchPlayerStatus(
+  const base::Vec2& offset,
+  const DeathmatchPlayerStatus& status)
+{
+  const auto healthText = status.mIsDead
+    ? std::string{"DEAD"}
+    : "HP " + std::to_string(status.mHealth);
   mTextRenderer.drawText(
-    1,
-    scoreboardY + 1,
-    "KILLS/DEATHS - LIMIT " + std::to_string(dm.mOptions.mFragLimit));
+    offset.x,
+    offset.y,
+    "P" + std::to_string(status.mPlayerIndex + 1) + " " + healthText + " K" +
+      std::to_string(status.mFrags));
+
+  auto weaponText = std::string{shortWeaponName(status.mWeapon)};
+  if (status.mWeaponConsumesAmmo)
+  {
+    weaponText += " " + std::to_string(status.mAmmo);
+  }
+  mTextRenderer.drawText(offset.x, offset.y + 1, weaponText);
+}
+
+
+void GameWorld::drawDeathmatchScoreboard(
+  const std::vector<DeathmatchScore>& scores,
+  const int fragLimit)
+{
+  // Below the views
+  const auto area = deathmatchWorldAreaSize();
+  const auto scoreboardY = area.height + 1;
+
+  std::string text;
+  for (auto i = 0u; i < scores.size(); ++i)
+  {
+    if (scores[i].mIsActive)
+    {
+      text += "P" + std::to_string(i + 1) + ":" +
+        std::to_string(scores[i].mFrags) + "/" +
+        std::to_string(scores[i].mDeaths) + "  ";
+    }
+  }
+
+  mTextRenderer.drawText(1, scoreboardY, text);
+  mTextRenderer.drawText(
+    1, scoreboardY + 1, "KILLS/DEATHS - LIMIT " + std::to_string(fragLimit));
 }
 
 } // namespace rigel::game_logic

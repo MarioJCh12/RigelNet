@@ -50,6 +50,14 @@ std::unique_ptr<game_logic::IGameWorld> createGameWorld(
   }
 }
 
+GameMode::Context withServiceProvider(
+  GameMode::Context context,
+  IGameServiceProvider* pServiceProvider)
+{
+  context.mpServiceProvider = pServiceProvider;
+  return context;
+}
+
 } // namespace
 
 
@@ -60,25 +68,49 @@ GameRunner::GameRunner(
   const std::optional<base::Vec2> playerPositionOverride,
   const bool showWelcomeMessage)
   : mContext(context)
+  , mServiceProviderProxy(context.mpServiceProvider)
   , mpWorld(createGameWorld(
       context.mpUserProfile->mOptions.mGameplayStyle,
       context.mpServiceProvider->commandLineOptions().mDeathmatch.has_value(),
       pPersistentPlayerState,
       sessionId,
-      context,
+      withServiceProvider(context, &mServiceProviderProxy),
       playerPositionOverride,
       showWelcomeMessage))
   , mInputHandler(&context.mpUserProfile->mOptions)
   , mMenu(context, pPersistentPlayerState, mpWorld.get(), sessionId)
 {
-  const auto& deathmatchOptions =
-    context.mpServiceProvider->commandLineOptions().mDeathmatch;
-  if (deathmatchOptions && mpWorld->supportsDeathmatch())
+  const auto& commandLine = context.mpServiceProvider->commandLineOptions();
+  const auto& deathmatchOptions = commandLine.mDeathmatch;
+  auto pNetworkWorld = dynamic_cast<game_logic::INetworkWorld*>(mpWorld.get());
+
+  if (commandLine.mpNetworkClient && pNetworkWorld)
+  {
+    // Network client: The game runs on the host, we only show it
+    mpNetworkSession = createClientSession(
+      commandLine.mpNetworkClient, pNetworkWorld, context.mpServiceProvider);
+  }
+  else if (deathmatchOptions && mpWorld->supportsDeathmatch())
   {
     mpWorld->enableDeathmatch(*deathmatchOptions);
 
+    if (commandLine.mHostPort && pNetworkWorld)
+    {
+      mpNetworkSession = createHostSession(
+        *commandLine.mHostPort,
+        deathmatchOptions->mNumPlayers,
+        sessionId,
+        pNetworkWorld,
+        &mServiceProviderProxy);
+    }
+
+
     mInputHandler.setMultiplayerSlot(0);
-    for (auto slot = 1; slot < deathmatchOptions->mNumPlayers; ++slot)
+
+    const auto numLocalPlayers = deathmatchOptions->mNumLocalPlayers <= 0
+      ? deathmatchOptions->mNumPlayers
+      : deathmatchOptions->mNumLocalPlayers;
+    for (auto slot = 1; slot < numLocalPlayers; ++slot)
     {
       auto& handler =
         mExtraInputHandlers.emplace_back(&context.mpUserProfile->mOptions);
@@ -146,6 +178,10 @@ void GameRunner::updateAndRender(engine::TimeDelta dt)
 
   if (updateMenu(dt))
   {
+    if (mpNetworkSession)
+    {
+      mpNetworkSession->keepAlive();
+    }
     return;
   }
 
@@ -175,20 +211,44 @@ void GameRunner::updateWorld(const engine::TimeDelta dt)
 {
   auto update = [this]()
   {
-    if (mExtraInputHandlers.empty())
+    if (mpNetworkSession)
     {
-      mpWorld->updateGameLogic(mInputHandler.fetchInput());
+      mpNetworkSession->receive();
+    }
+
+    const auto localInput = mInputHandler.fetchInput();
+
+    if (mpNetworkSession && mpNetworkSession->isClient())
+    {
+      // The game runs on the host, our world only animates
+      mpWorld->updateGameLogic(localInput);
+    }
+    else if (mExtraInputHandlers.empty() && !mpNetworkSession)
+    {
+      mpWorld->updateGameLogic(localInput);
     }
     else
     {
       std::vector<game_logic::PlayerInput> inputs;
-      inputs.push_back(mInputHandler.fetchInput());
+      inputs.push_back(localInput);
       for (auto& handler : mExtraInputHandlers)
       {
         inputs.push_back(handler.fetchInput());
       }
 
+      if (mpNetworkSession)
+      {
+        inputs.resize(size_t(mContext.mpServiceProvider->commandLineOptions()
+                               .mDeathmatch->mNumPlayers));
+        mpNetworkSession->fillRemoteInputs(inputs);
+      }
+
       mpWorld->updateGameLogicMultiplayer(inputs);
+    }
+
+    if (mpNetworkSession)
+    {
+      mpNetworkSession->sendUpdates(localInput);
     }
   };
 

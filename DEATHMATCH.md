@@ -104,6 +104,57 @@ falta `NUKEM2.CMP` (imprescindible: mapas, gráficos y sonido) y `NUKEM2.F1` a
 guardadas y récords del juego original: RigelEngine los importa si están, pero
 son opcionales.
 
+## Partida en red
+
+Un jugador crea la partida (host) y los demás se conectan a su IP. Se puede
+entrar y salir en cualquier momento.
+
+**Crear la partida** (por defecto hasta 4 jugadores, contándote a ti):
+
+```
+RigelEngine.exe --host -l M1 "E:\Juegos\DUKE2"
+```
+
+**Unirse** (el nivel lo decide el host):
+
+```
+RigelEngine.exe --connect 192.168.1.20 "E:\Juegos\DUKE2"
+```
+
+Cambia `192.168.1.20` por la IP del host. Para saber tu IP en la red de tu
+casa, ejecuta `ipconfig` en una consola y busca "Dirección IPv4". Para
+probarlo en un solo PC, abre dos copias del juego y conecta la segunda a
+`127.0.0.1`.
+
+| Opción | Qué hace | Por defecto |
+|---|---|---|
+| `--host` | Crea una partida en red | — |
+| `--connect <ip>` | Se une a una partida (`ip` o `ip:puerto`) | — |
+| `--port <número>` | Puerto UDP del host | 7777 |
+| `--players <2-4>` | Plazas en total, incluido el host | 4 |
+| `--frag-limit`, `--item-respawn`, `--keep-enemies`, `--difficulty` | Igual que en local; solo las usa el host | |
+
+Cosas a tener en cuenta:
+
+- **Todos necesitan los mismos archivos de datos del juego** (y el mismo
+  `M1.MNI` si se juega en la arena) y **la misma versión de RigelEngine**.
+  Si no, el host rechaza la conexión o los gráficos salen mal.
+- **Cortafuegos de Windows:** la primera vez que hagas de host, Windows te
+  preguntará si permites que RigelEngine use la red. Acepta, al menos para
+  redes privadas.
+- **Por Internet (fuera de tu casa):** el host tiene que abrir/redirigir el
+  puerto **7777 UDP** en su router hacia su PC, y los demás se conectan a su
+  IP pública. Alternativa sin tocar el router: una red privada virtual tipo
+  ZeroTier, Tailscale o Radmin VPN, y usar la IP que te da esa red.
+- **Cómo funciona:** el host ejecuta la partida y cada cliente solo muestra
+  lo que el host le manda. Con ping alto, tu personaje responde con un poco
+  de retraso. La siguiente etapa (predicción en el cliente) corregirá eso.
+- **Si el host abre el menú (Esc), la partida se pausa para todos.**
+- **Un cliente que sale al menú principal abandona la partida.** Para
+  volver a entrar, reinicia el juego con `--connect`.
+- **Si alguien pierde la conexión,** el host lo saca de la partida a los
+  pocos segundos y su plaza queda libre.
+
 ## Mapa de prueba: la arena
 
 `tools/deathmatch_arena/make_arena.py` genera una arena pensada para
@@ -239,14 +290,20 @@ indica en qué paso; pásame ese error.
 | `src/game_logic/camera.cpp` | La cámara se adapta a vistas pequeñas |
 | `src/engine/entity_activation_system.cpp`, `src/engine/life_time_system.cpp` | Soporte para varias vistas simultáneas |
 | `src/engine/sprite_rendering_system.cpp` | Teñido de sprites (colores de jugador) |
+| `src/game_logic/game_world_network.cpp` | Lado del juego en red: capturar (host) y aplicar (cliente) instantáneas |
+| `src/game_logic_common/network_world.hpp` | Datos que el host manda a los clientes |
+| `src/network/` | Protocolo de red y conexión (sobre ENet) |
+| `src/frontend/network_session.cpp` | Une la red con el bucle del juego: altas, bajas, entradas y envíos |
+| `3rd_party/enet/` | Librería de red ENet (licencia MIT), incluida como código fuente |
 | `test/test_multiplayer.cpp` | Tests de lo anterior |
+| `test/test_network_protocol.cpp` | Tests del protocolo de red |
 | `tools/deathmatch_arena/make_arena.py` | Generador de la arena de prueba |
 
 El modo de un jugador funciona exactamente igual que antes. Todas las
 ramificaciones nuevas solo se activan con `--deathmatch`.
 
-Siguiente paso previsto: el modo en red cliente/servidor, con predicción del
-jugador local para eliminar la sensación de retraso.
+Siguiente paso previsto: predicción del jugador local en los clientes, para
+eliminar la sensación de retraso al jugar por Internet.
 
 ## Licencia
 

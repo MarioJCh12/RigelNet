@@ -36,6 +36,7 @@
 #include "game_logic/behavior_controller.hpp"
 #include "game_logic/collectable_components.hpp"
 #include "game_logic/deathmatch_state.hpp"
+#include "game_logic/remote_view_state.hpp"
 #include "game_logic/dynamic_geometry_components.hpp"
 #include "game_logic/enemies/dying_boss.hpp"
 #include "game_logic/world_state.hpp"
@@ -594,6 +595,12 @@ bool GameWorld::needsPerElementUpscaling() const
 
 void GameWorld::updateGameLogic(const PlayerInput& input)
 {
+  if (mpRemoteView)
+  {
+    updateRemoteView();
+    return;
+  }
+
   if (mpDeathmatch)
   {
     updateDeathmatchLogic({input});
@@ -710,11 +717,10 @@ void GameWorld::render(const float interpolationFactor)
 
     if (mpDeathmatch)
     {
-      const auto viewports = deathmatchViewports();
-      for (auto i = 0u; i < viewports.size(); ++i)
+      for (const auto& viewport : deathmatchViewports())
       {
-        auto& participant = mpDeathmatch->mParticipants[i];
-        participant.mpCamera->recenter(viewports[i].mSize);
+        auto& participant = mpDeathmatch->mParticipants[viewport.mParticipant];
+        participant.mpCamera->recenter(viewport.mSize);
         participant.mPreviousCameraPosition = participant.mpCamera->position();
       }
     }
@@ -836,10 +842,39 @@ void GameWorld::render(const float interpolationFactor)
   };
 
 
+  // Network clients use the same screen layout as deathmatch
+  auto drawRemoteView = [&]() {
+    const auto& snapshot = mpRemoteView->mSnapshot;
+    const auto worldAreaSize = deathmatchWorldAreaSize();
+
+    drawWorldFromCamera(
+      worldAreaSize, snapshot.mCameraPosition, snapshot.mCameraPosition);
+
+    const auto playerIndex = mpRemoteView->mPlayerIndex;
+    drawDeathmatchPlayerStatus(
+      {0, 0},
+      DeathmatchPlayerStatus{
+        playerIndex,
+        snapshot.mIsDead,
+        snapshot.mHealth,
+        static_cast<data::WeaponType>(snapshot.mWeapon),
+        snapshot.mAmmo,
+        snapshot.mWeaponConsumesAmmo,
+        playerIndex < int(snapshot.mScores.size())
+          ? snapshot.mScores[playerIndex].mFrags
+          : 0});
+
+    std::vector<DeathmatchScore> scores;
+    for (const auto& score : snapshot.mScores)
+    {
+      scores.push_back({score.mIsActive, score.mFrags, score.mDeaths});
+    }
+    drawDeathmatchScoreboard(scores, snapshot.mFragLimit);
+  };
+
   auto drawDeathmatchWorlds = [&]()
   {
     const auto worldAreaSize = deathmatchWorldAreaSize();
-    const auto viewports = deathmatchViewports();
 
     mpRenderer->drawFilledRectangle(
       {{},
@@ -847,10 +882,18 @@ void GameWorld::render(const float interpolationFactor)
          worldAreaSize.width, worldAreaSize.height + DEATHMATCH_STATUS_ROWS})},
       base::Color{0, 0, 0, 255});
 
-    for (auto i = 0u; i < viewports.size(); ++i)
+    if (mpRemoteView)
     {
-      const auto& viewport = viewports[i];
-      const auto& participant = mpDeathmatch->mParticipants[i];
+      drawRemoteView();
+      return;
+    }
+
+    const auto viewports = deathmatchViewports();
+
+    for (const auto& viewport : viewports)
+    {
+      const auto& participant =
+        mpDeathmatch->mParticipants[viewport.mParticipant];
 
       const auto saved = renderer::saveState(mpRenderer);
       renderer::setLocalTranslation(
@@ -877,7 +920,7 @@ void GameWorld::render(const float interpolationFactor)
   };
 
 
-  if (mpDeathmatch)
+  if (mpDeathmatch || mpRemoteView)
   {
     if (widescreenModeOn())
     {
@@ -1127,7 +1170,8 @@ void GameWorld::drawMapAndSprites(
 
   auto outerStateSave = renderer::saveState(mpRenderer);
 
-  if (mpOptions->mMotionSmoothing)
+  // Network clients get their sprites from the host
+  if (mpOptions->mMotionSmoothing && !mpRemoteView)
   {
     mpState->mSpriteRenderingSystem.update(
       mpState->mEntities,

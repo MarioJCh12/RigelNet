@@ -28,6 +28,7 @@
 #include "base/string_utils.hpp"
 #include "base/warnings.hpp"
 #include "frontend/user_profile.hpp"
+#include "network/connection.hpp"
 
 #include "game_main.hpp"
 
@@ -171,6 +172,9 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
 
   auto deathmatchEnabled = false;
   auto deathmatchOptions = game_logic::DeathmatchOptions{};
+  auto numPlayers = 0;
+  auto hostGame = false;
+  auto hostPort = int(network::DEFAULT_PORT);
 
   // clang-format off
   auto optionsParser = lyra::help(showHelp)
@@ -186,8 +190,18 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
       .help(
         "Local split-screen deathmatch. Uses the map given via --play-level, "
         "or L1 if none is given")
-    | lyra::opt(deathmatchOptions.mNumPlayers, "2-4")["--players"]
-      .help("Number of deathmatch players (default 2)")
+    | lyra::opt(numPlayers, "2-4")["--players"]
+      .help(
+        "Number of deathmatch players (default 2, or 4 when hosting). "
+        "When hosting, this includes you")
+    | lyra::opt(hostGame)["--host"]
+      .help("Host a network deathmatch that others can join with --connect")
+    | lyra::opt(hostPort, "port")["--port"]
+      .help("UDP port for hosting (default 7777)")
+    | lyra::opt(config.mConnectAddress, "address")["--connect"]
+      .help(
+        "Join a network deathmatch. Address of the host, e.g. 192.168.1.20 "
+        "or 192.168.1.20:7777")
     | lyra::opt(deathmatchOptions.mFragLimit, "kills")["--frag-limit"]
       .help("Kills needed to win a deathmatch round (default 10)")
     | lyra::opt(deathmatchOptions.mItemRespawnSeconds, "seconds")
@@ -262,6 +276,28 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
     config.mGamePath += "/";
   }
 
+  if (hostGame && !config.mConnectAddress.empty())
+  {
+    std::cerr << "ERROR: Can't use --host and --connect together\n";
+    return -1;
+  }
+
+  if (hostPort <= 0 || hostPort > 65535)
+  {
+    std::cerr << "ERROR: --port must be between 1 and 65535\n";
+    return -1;
+  }
+
+  if (hostGame)
+  {
+    deathmatchEnabled = true;
+    deathmatchOptions.mNumLocalPlayers = 1;
+    config.mHostPort = std::uint16_t(hostPort);
+  }
+
+  deathmatchOptions.mNumPlayers =
+    numPlayers > 0 ? numPlayers : (hostGame ? 4 : 2);
+
   if (deathmatchEnabled)
   {
     if (
@@ -302,6 +338,34 @@ void initializeLogging(int argc, char** argv)
 }
 
 
+/** Join a network game. The host decides which level is played. */
+void connectToHost(CommandLineOptions& config)
+{
+  const auto [hostName, port] =
+    network::parseAddress(config.mConnectAddress, network::DEFAULT_PORT);
+
+  std::cout << "Connecting to " << hostName << ":" << port << "...\n";
+
+  auto pClient = std::make_shared<network::NetworkClient>(
+    hostName, port, std::chrono::seconds(5));
+
+  const auto& welcome = pClient->welcome();
+  std::cout << "Connected, joining as player " << welcome.mPlayerIndex + 1
+            << "\n";
+
+  config.mLevelToJumpTo = welcome.mSessionId;
+  config.mPlayerPosition.reset();
+  config.mSkipIntro = true;
+
+  // Makes the game use the deathmatch-capable game logic. The actual
+  // settings come from the host.
+  config.mDeathmatch = game_logic::DeathmatchOptions{};
+  config.mDeathmatch->mNumPlayers = welcome.mNumPlayers;
+
+  config.mpNetworkClient = std::move(pClient);
+}
+
+
 int runGame(CommandLineOptions config)
 {
   enableDpiAwareness();
@@ -314,6 +378,11 @@ int runGame(CommandLineOptions config)
 
   try
   {
+    if (!config.mConnectAddress.empty())
+    {
+      connectToHost(config);
+    }
+
     return gameMain(config);
   }
   catch (const std::exception& ex)

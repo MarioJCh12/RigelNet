@@ -16,6 +16,7 @@ add_executable(tests
     test_json_utils.cpp
     test_letter_collection.cpp
     test_multiplayer.cpp
+    test_network_protocol.cpp
     test_physics_system.cpp
     test_player.cpp
     test_rng.cpp

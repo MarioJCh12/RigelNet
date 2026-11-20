@@ -53,6 +53,7 @@ void IngameMessageDisplay::setMessage(
     (priority >= mCurrentPriority || !std::holds_alternative<Printing>(mState)))
   {
     mMessage = std::move(message);
+    ++mMessageCounter;
     mCurrentPriority = priority;
     mPrintedMessage.clear();
     mState = Printing{};

@@ -20,6 +20,15 @@
 #include "data/game_session_data.hpp"
 #include "game_logic_common/deathmatch_options.hpp"
 
+#include <cstdint>
+#include <memory>
+
+
+namespace rigel::network
+{
+class NetworkClient;
+}
+
 #include <optional>
 #include <string>
 #include <utility>
@@ -50,6 +59,15 @@ struct CommandLineOptions
 
   /** If set, start a local split-screen deathmatch on mLevelToJumpTo */
   std::optional<game_logic::DeathmatchOptions> mDeathmatch;
+
+  /** If set, host a network deathmatch on this UDP port */
+  std::optional<std::uint16_t> mHostPort;
+
+  /** If set, join a network deathmatch at this address ("host[:port]") */
+  std::string mConnectAddress;
+
+  /** If set, this is a network client already connected to a host */
+  std::shared_ptr<network::NetworkClient> mpNetworkClient;
 };
 
 } // namespace rigel

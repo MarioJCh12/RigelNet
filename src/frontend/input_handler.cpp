@@ -19,6 +19,8 @@
 #include "data/game_options.hpp"
 #include "sdl_utils/key_code.hpp"
 
+#include <optional>
+
 
 namespace rigel
 {
@@ -48,6 +50,63 @@ game_logic::PlayerInput combinedInput(
   return combined;
 }
 
+struct KeyLayout
+{
+  SDL_Keycode mUp;
+  SDL_Keycode mDown;
+  SDL_Keycode mLeft;
+  SDL_Keycode mRight;
+  SDL_Keycode mJump;
+  SDL_Keycode mFire;
+};
+
+
+// Fixed keyboard layout for player 2 in local multiplayer. Chosen to not
+// overlap with the default player 1 keys (arrows, Ctrl, Alt).
+constexpr auto PLAYER_2_KEYS =
+  KeyLayout{SDLK_w, SDLK_s, SDLK_a, SDLK_d, SDLK_g, SDLK_f};
+
+
+std::optional<SDL_JoystickID>
+  controllerInstanceIdForEvent(const SDL_Event& event)
+{
+  switch (event.type)
+  {
+    case SDL_CONTROLLERAXISMOTION:
+      return event.caxis.which;
+
+    case SDL_CONTROLLERBUTTONDOWN:
+    case SDL_CONTROLLERBUTTONUP:
+      return event.cbutton.which;
+
+    default:
+      return std::nullopt;
+  }
+}
+
+
+/** Index of the controller among all connected game controllers */
+int controllerIndexForInstanceId(const SDL_JoystickID instanceId)
+{
+  auto controllerIndex = 0;
+  for (auto deviceIndex = 0; deviceIndex < SDL_NumJoysticks(); ++deviceIndex)
+  {
+    if (!SDL_IsGameController(deviceIndex))
+    {
+      continue;
+    }
+
+    if (SDL_JoystickGetDeviceInstanceID(deviceIndex) == instanceId)
+    {
+      return controllerIndex;
+    }
+
+    ++controllerIndex;
+  }
+
+  return -1;
+}
+
 } // namespace
 
 
@@ -57,10 +116,37 @@ InputHandler::InputHandler(const data::GameOptions* pOptions)
 }
 
 
+void InputHandler::setMultiplayerSlot(const int slot)
+{
+  mMultiplayerSlot = slot;
+}
+
+
+bool InputHandler::isEventForThisPlayer(const SDL_Event& event) const
+{
+  if (mMultiplayerSlot < 0)
+  {
+    return true;
+  }
+
+  if (const auto instanceId = controllerInstanceIdForEvent(event))
+  {
+    return controllerIndexForInstanceId(*instanceId) == mMultiplayerSlot;
+  }
+
+  return true;
+}
+
+
 auto InputHandler::handleEvent(const SDL_Event& event, const bool playerInShip)
   -> MenuCommand
 {
   const auto isKeyEvent = event.type == SDL_KEYDOWN || event.type == SDL_KEYUP;
+
+  if (!isEventForThisPlayer(event))
+  {
+    return MenuCommand::None;
+  }
 
   if (isKeyEvent && event.key.repeat == 0)
   {
@@ -102,30 +188,50 @@ auto InputHandler::handleKeyboardInput(const SDL_Event& event) -> MenuCommand
   const auto keyCode =
     sdl_utils::normalizeLeftRightVariants(event.key.keysym.sym);
 
-  if (keyCode == mpOptions->mUpKeybinding)
+  if (mMultiplayerSlot >= 2)
+  {
+    // Players 3 and 4 only have game controllers
+    return MenuCommand::None;
+  }
+
+  const auto keys = mMultiplayerSlot == 1 ? PLAYER_2_KEYS
+                                          : KeyLayout{
+                                              mpOptions->mUpKeybinding,
+                                              mpOptions->mDownKeybinding,
+                                              mpOptions->mLeftKeybinding,
+                                              mpOptions->mRightKeybinding,
+                                              mpOptions->mJumpKeybinding,
+                                              mpOptions->mFireKeybinding};
+
+  if (keyCode == keys.mUp)
   {
     mPlayerInput.mUp = keyPressed;
     updateButton(mPlayerInput.mInteract, keyPressed);
   }
-  else if (keyCode == mpOptions->mDownKeybinding)
+  else if (keyCode == keys.mDown)
   {
     mPlayerInput.mDown = keyPressed;
   }
-  else if (keyCode == mpOptions->mLeftKeybinding)
+  else if (keyCode == keys.mLeft)
   {
     mPlayerInput.mLeft = keyPressed;
   }
-  else if (keyCode == mpOptions->mRightKeybinding)
+  else if (keyCode == keys.mRight)
   {
     mPlayerInput.mRight = keyPressed;
   }
-  else if (keyCode == mpOptions->mJumpKeybinding)
+  else if (keyCode == keys.mJump)
   {
     updateButton(mPlayerInput.mJump, keyPressed);
   }
-  else if (keyCode == mpOptions->mFireKeybinding)
+  else if (keyCode == keys.mFire)
   {
     updateButton(mPlayerInput.mFire, keyPressed);
+  }
+  else if (mMultiplayerSlot > 0)
+  {
+    // Quick save/load keys only for player 1
+    return MenuCommand::None;
   }
   else if (keyCode == mpOptions->mQuickSaveKeybinding)
   {

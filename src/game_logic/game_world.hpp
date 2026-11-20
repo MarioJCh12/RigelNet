@@ -61,6 +61,7 @@ namespace rigel::game_logic
 {
 
 struct WorldState;
+struct DeathmatchState;
 
 class GameWorld : public IGameWorld, public entityx::Receiver<GameWorld>
 {
@@ -95,6 +96,10 @@ public:
 
   bool needsPerElementUpscaling() const override;
   void updateGameLogic(const PlayerInput& input) override;
+  bool supportsDeathmatch() const override { return true; }
+  void enableDeathmatch(const DeathmatchOptions& options) override;
+  void
+    updateGameLogicMultiplayer(const std::vector<PlayerInput>& inputs) override;
   void render(float interpolationFactor = 0.0f) override;
   void processEndOfFrameActions() override;
   void updateBackdropAutoScrolling(engine::TimeDelta dt) override;
@@ -145,12 +150,32 @@ private:
 
   ViewportParams determineSmoothScrollViewport(
     const base::Size& viewportSizeOriginal,
-    const float interpolationFactor) const;
+    const float interpolationFactor,
+    const base::Vec2& cameraPosition,
+    const base::Vec2& previousCameraPosition) const;
   void updateMotionSmoothingStates();
 
   void
     drawMapAndSprites(const ViewportParams& params, float interpolationFactor);
   bool widescreenModeOn() const;
+
+  // Deathmatch (implemented in game_world_deathmatch.cpp)
+  struct DeathmatchViewport
+  {
+    base::Vec2 mOffset; // in tiles, relative to the world area's top-left
+    base::Size mSize; // in tiles
+  };
+
+  base::Size deathmatchWorldAreaSize() const;
+  std::vector<DeathmatchViewport> deathmatchViewports() const;
+  void updateDeathmatchLogic(const std::vector<PlayerInput>& inputs);
+  void updateDeathmatchRules();
+  void applyPlayerVsPlayerDamage();
+  void updateItemRespawning();
+  void respawnDeathmatchPlayer(int index);
+  void restartDeathmatchRound();
+  base::Vec2 chooseDeathmatchSpawnPoint(int forPlayerIndex);
+  void drawDeathmatchStatus(const std::vector<DeathmatchViewport>& viewports);
 
   struct QuickSaveData
   {
@@ -181,6 +206,10 @@ private:
 
   std::unique_ptr<WorldState> mpState;
   std::unique_ptr<QuickSaveData> mpQuickSave;
+
+  // Must come after mpState, so that it's destroyed first (it references
+  // objects owned by the world state)
+  std::unique_ptr<DeathmatchState> mpDeathmatch;
 };
 
 } // namespace rigel::game_logic

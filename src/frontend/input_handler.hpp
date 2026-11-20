@@ -48,6 +48,19 @@ public:
 
   explicit InputHandler(const data::GameOptions* pOptions);
 
+  /** Restrict this handler to the controls of one player in local multiplayer
+   *
+   * By default, an InputHandler reacts to the configured keyboard keys and
+   * all game controllers. After calling this, it only reacts to the game
+   * controller with the given index (0 = first connected controller), and
+   * to a keyboard layout specific to that player:
+   *
+   *  - Player 1: The keys configured in the options menu
+   *  - Player 2: W/A/S/D to move, G to jump, F to fire
+   *  - Players 3 and 4: Game controller only
+   */
+  void setMultiplayerSlot(int slot);
+
   MenuCommand handleEvent(const SDL_Event& event, bool playerInShip);
   void reset();
 
@@ -57,7 +70,10 @@ private:
   MenuCommand handleKeyboardInput(const SDL_Event& event);
   MenuCommand handleControllerInput(const SDL_Event& event, bool playerInShip);
 
+  bool isEventForThisPlayer(const SDL_Event& event) const;
+
   game_logic::PlayerInput mPlayerInput;
+  int mMultiplayerSlot = -1;
   base::Vec2 mAnalogStickVector;
   const data::GameOptions* mpOptions;
   bool mQuickSaveModifierHeld = false;

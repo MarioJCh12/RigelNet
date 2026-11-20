@@ -27,6 +27,17 @@ void LifeTimeSystem::update(
   const base::Vec2& cameraPosition,
   const base::Size& viewportSize)
 {
+  update(
+    es,
+    std::vector<base::Rect<int>>{
+      components::BoundingBox{cameraPosition, viewportSize}});
+}
+
+
+void LifeTimeSystem::update(
+  entityx::EntityManager& es,
+  const std::vector<base::Rect<int>>& activeRegions)
+{
   namespace c = components;
   using Condition = components::AutoDestroy::Condition;
 
@@ -39,8 +50,16 @@ void LifeTimeSystem::update(
         {
           const auto& position = *entity.component<c::WorldPosition>();
           const auto& bbox = *entity.component<c::BoundingBox>();
-          return engine::isOnScreen(
-            engine::toWorldSpace(bbox, position), cameraPosition, viewportSize);
+          const auto worldSpaceBbox = engine::toWorldSpace(bbox, position);
+          for (const auto& region : activeRegions)
+          {
+            if (worldSpaceBbox.intersects(region))
+            {
+              return true;
+            }
+          }
+
+          return false;
         }
 
         return entity.has_component<c::Active>() &&

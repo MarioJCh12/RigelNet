@@ -19,6 +19,8 @@
 #include "base/spatial_types.hpp"
 #include "engine/life_time_components.hpp"
 
+#include <vector>
+
 RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
 RIGEL_RESTORE_WARNINGS
@@ -34,6 +36,15 @@ public:
     entityx::EntityManager& es,
     const base::Vec2& cameraPosition,
     const base::Size& viewportSize);
+
+  /** Variant for multiple simultaneous viewports (e.g. split-screen).
+   *
+   * Entities with the OnLeavingActiveRegion condition are only destroyed
+   * once they are outside of all given regions.
+   */
+  void update(
+    entityx::EntityManager& es,
+    const std::vector<base::Rect<int>>& activeRegions);
 };
 
 } // namespace rigel::engine

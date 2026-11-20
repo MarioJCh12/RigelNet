@@ -19,10 +19,12 @@
 
 #include "data/bonus.hpp"
 #include "engine/timing.hpp"
+#include "game_logic_common/deathmatch_options.hpp"
 #include "game_logic_common/input.hpp"
 
 #include <iosfwd>
 #include <set>
+#include <vector>
 
 
 namespace rigel::game_logic
@@ -49,6 +51,26 @@ struct IGameWorld
   virtual std::set<data::Bonus> achievedBonuses() const = 0;
   virtual bool needsPerElementUpscaling() const = 0;
   virtual void updateGameLogic(const PlayerInput& input) = 0;
+
+  /** True if this implementation supports enableDeathmatch() */
+  virtual bool supportsDeathmatch() const { return false; }
+
+  /** Turn the loaded level into a local multiplayer deathmatch arena.
+   *
+   * Must be called right after construction, before the first call to
+   * updateGameLogic(). Only has an effect if supportsDeathmatch() is true.
+   */
+  virtual void enableDeathmatch(const DeathmatchOptions&) { }
+
+  /** Update with one input per player (index 0 = player 1).
+   *
+   * Outside of multiplayer modes, only the first input is used.
+   */
+  virtual void
+    updateGameLogicMultiplayer(const std::vector<PlayerInput>& inputs)
+  {
+    updateGameLogic(inputs.empty() ? PlayerInput{} : inputs.front());
+  }
   virtual void render(float interpolationFactor = 0.0f) = 0;
   virtual void processEndOfFrameActions() = 0;
   virtual void updateBackdropAutoScrolling(engine::TimeDelta dt) = 0;

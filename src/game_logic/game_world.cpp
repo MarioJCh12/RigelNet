@@ -35,6 +35,7 @@
 #include "game_logic/actor_tag.hpp"
 #include "game_logic/behavior_controller.hpp"
 #include "game_logic/collectable_components.hpp"
+#include "game_logic/deathmatch_state.hpp"
 #include "game_logic/dynamic_geometry_components.hpp"
 #include "game_logic/enemies/dying_boss.hpp"
 #include "game_logic/world_state.hpp"
@@ -353,6 +354,11 @@ std::set<data::Bonus> GameWorld::achievedBonuses() const
 
 void GameWorld::receive(const rigel::events::CheckPointActivated& event)
 {
+  if (mpDeathmatch)
+  {
+    return;
+  }
+
   mpState->mActivatedCheckpoint =
     CheckpointData{mpPersistentPlayerState->makeCheckpoint(), event.mPosition};
   mMessageDisplay.setMessage(data::Messages::FoundRespawnBeacon);
@@ -361,6 +367,12 @@ void GameWorld::receive(const rigel::events::CheckPointActivated& event)
 
 void GameWorld::receive(const rigel::events::ExitReached& event)
 {
+  if (mpDeathmatch)
+  {
+    // There's no level exit in deathmatch
+    return;
+  }
+
   if (
     mpState->mRadarDishCounter.radarDishesPresent() && event.mCheckRadarDishes)
   {
@@ -382,6 +394,12 @@ void GameWorld::receive(const rigel::events::HintMachineMessage& event)
 
 void GameWorld::receive(const rigel::events::PlayerDied& event)
 {
+  if (mpDeathmatch)
+  {
+    // Deaths are handled per player in updateDeathmatchRules()
+    return;
+  }
+
   mpState->mPlayerDied = true;
 }
 
@@ -473,6 +491,12 @@ void GameWorld::receive(const rigel::events::CloakPickedUp& event)
 
 void GameWorld::receive(const rigel::events::CloakExpired&)
 {
+  if (mpDeathmatch)
+  {
+    // Cloaking device boxes are brought back by the item respawning logic
+    return;
+  }
+
   if (mpState->mCloakPickupPosition)
   {
     mpState->mEntityFactory.spawnActor(
@@ -570,6 +594,12 @@ bool GameWorld::needsPerElementUpscaling() const
 
 void GameWorld::updateGameLogic(const PlayerInput& input)
 {
+  if (mpDeathmatch)
+  {
+    updateDeathmatchLogic({input});
+    return;
+  }
+
   mpState->mBackdropFlashColor = std::nullopt;
   mpState->mScreenFlashColor = std::nullopt;
 
@@ -678,7 +708,21 @@ void GameWorld::render(const float interpolationFactor)
       ? viewportSizeWideScreen(mpRenderer, *mpOptions)
       : data::GameTraits::mapViewportSize;
 
-    mpState->mCamera.recenter(viewportSize);
+    if (mpDeathmatch)
+    {
+      const auto viewports = deathmatchViewports();
+      for (auto i = 0u; i < viewports.size(); ++i)
+      {
+        auto& participant = mpDeathmatch->mParticipants[i];
+        participant.mpCamera->recenter(viewports[i].mSize);
+        participant.mPreviousCameraPosition = participant.mpCamera->position();
+      }
+    }
+    else
+    {
+      mpState->mCamera.recenter(viewportSize);
+    }
+
     mpState->mPreviousCameraPosition = mpState->mCamera.position();
   }
 
@@ -711,9 +755,16 @@ void GameWorld::render(const float interpolationFactor)
         interpolationFactor);
     };
 
-  auto drawWorld = [&](const base::Size& viewportSize) {
-    const auto viewportParams =
-      determineSmoothScrollViewport(viewportSize, interpolationFactor);
+  auto drawWorldFromCamera = [&](
+                               const base::Size& viewportSize,
+                               const base::Vec2& cameraPosition,
+                               const base::Vec2& previousCameraPosition)
+  {
+    const auto viewportParams = determineSmoothScrollViewport(
+      viewportSize,
+      interpolationFactor,
+      cameraPosition,
+      previousCameraPosition);
 
     // prevent out of bounds areas from showing the backdrop/sprites
     auto clipRectGuard =
@@ -742,6 +793,14 @@ void GameWorld::render(const float interpolationFactor)
       drawMapAndSprites(viewportParams, interpolationFactor);
       drawParticlesAndDebugOverlay(viewportParams);
     }
+  };
+
+  auto drawWorld = [&](const base::Size& viewportSize)
+  {
+    drawWorldFromCamera(
+      viewportSize,
+      mpState->mCamera.position(),
+      mpState->mPreviousCameraPosition);
   };
 
   auto drawTopRow = [&, this](int maxWidthPx) {
@@ -777,7 +836,101 @@ void GameWorld::render(const float interpolationFactor)
   };
 
 
-  if (widescreenModeOn())
+  auto drawDeathmatchWorlds = [&]()
+  {
+    const auto worldAreaSize = deathmatchWorldAreaSize();
+    const auto viewports = deathmatchViewports();
+
+    mpRenderer->drawFilledRectangle(
+      {{},
+       data::tilesToPixels(base::Size{
+         worldAreaSize.width, worldAreaSize.height + DEATHMATCH_STATUS_ROWS})},
+      base::Color{0, 0, 0, 255});
+
+    for (auto i = 0u; i < viewports.size(); ++i)
+    {
+      const auto& viewport = viewports[i];
+      const auto& participant = mpDeathmatch->mParticipants[i];
+
+      const auto saved = renderer::saveState(mpRenderer);
+      renderer::setLocalTranslation(
+        mpRenderer, data::tilesToPixels(viewport.mOffset));
+
+      if (!mpOptions->mMotionSmoothing)
+      {
+        // In single player, this happens as part of the logic update, but
+        // we need to do it once for each viewport here.
+        mpState->mSpriteRenderingSystem.update(
+          mpState->mEntities,
+          viewport.mSize,
+          participant.mpCamera->position(),
+          1.0f);
+      }
+
+      drawWorldFromCamera(
+        viewport.mSize,
+        participant.mpCamera->position(),
+        participant.mPreviousCameraPosition);
+    }
+
+    drawDeathmatchStatus(viewports);
+  };
+
+
+  if (mpDeathmatch)
+  {
+    if (widescreenModeOn())
+    {
+      mpServiceProvider->markCurrentFrameAsWidescreen();
+
+      const auto info = renderer::determineWidescreenViewport(mpRenderer);
+      const auto topRowWidthPx = data::tilesToPixels(info.mWidthTiles);
+
+      if (mpOptions->mPerElementUpscalingEnabled)
+      {
+        {
+          const auto saved = setupIngameViewportWidescreen(
+            mpRenderer, info, mpState->mScreenShakeOffsetX);
+          drawDeathmatchWorlds();
+        }
+
+        auto saved = setupWidescreenTopRowViewport(
+          mpRenderer, info, mpState->mScreenShakeOffsetX);
+        drawTopRow(topRowWidthPx);
+      }
+      else
+      {
+        const auto saved = renderer::saveState(mpRenderer);
+        mpRenderer->setClipRect({});
+
+        mpRenderer->setGlobalTranslation(
+          base::Vec2{mpState->mScreenShakeOffsetX, 0});
+        drawTopRow(topRowWidthPx);
+
+        mpRenderer->setGlobalTranslation(base::Vec2{
+          mpState->mScreenShakeOffsetX,
+          data::GameTraits::inGameViewportOffset.y});
+        drawDeathmatchWorlds();
+      }
+    }
+    else
+    {
+      {
+        const auto saved =
+          setupIngameViewport(mpRenderer, mpState->mScreenShakeOffsetX);
+        drawDeathmatchWorlds();
+      }
+
+      auto saved = renderer::saveState(mpRenderer);
+      renderer::setLocalTranslation(
+        mpRenderer,
+        {mpState->mScreenShakeOffsetX +
+           data::GameTraits::inGameViewportOffset.x,
+         0});
+      drawTopRow(data::GameTraits::inGameViewportSize.width);
+    }
+  }
+  else if (widescreenModeOn())
   {
     mpServiceProvider->markCurrentFrameAsWidescreen();
 
@@ -849,21 +1002,21 @@ void GameWorld::render(const float interpolationFactor)
 
 auto GameWorld::determineSmoothScrollViewport(
   const base::Size& viewportSizeOriginal,
-  float interpolationFactor) const -> ViewportParams
+  float interpolationFactor,
+  const base::Vec2& cameraPosition,
+  const base::Vec2& previousCameraPositionIn) const -> ViewportParams
 {
-  const auto& state = *mpState;
-
   if (!mpOptions->mMotionSmoothing)
   {
     return {
-      base::cast<float>(state.mCamera.position()),
+      base::cast<float>(cameraPosition),
       {},
-      state.mCamera.position(),
+      cameraPosition,
       viewportSizeOriginal};
   }
 
-  auto currentCameraPosition = state.mCamera.position();
-  auto previousCameraPosition = state.mPreviousCameraPosition;
+  auto currentCameraPosition = cameraPosition;
+  auto previousCameraPosition = previousCameraPositionIn;
 
   const auto direction = currentCameraPosition - previousCameraPosition;
 
@@ -1024,8 +1177,11 @@ bool GameWorld::widescreenModeOn() const
 
 void GameWorld::processEndOfFrameActions()
 {
-  handlePlayerDeath();
-  handleTeleporter();
+  if (!mpDeathmatch)
+  {
+    handlePlayerDeath();
+    handleTeleporter();
+  }
 
   mpState->mScreenShakeOffsetX = 0;
 }
@@ -1137,7 +1293,9 @@ void GameWorld::activateGiveItemsCheat()
 
 void GameWorld::quickSave()
 {
-  if (!mpOptions->mQuickSavingEnabled || mpState->mPlayer.isDead())
+  if (
+    mpDeathmatch || !mpOptions->mQuickSavingEnabled ||
+    mpState->mPlayer.isDead())
   {
     return;
   }
@@ -1199,7 +1357,7 @@ void GameWorld::quickLoad()
 
 bool GameWorld::canQuickLoad() const
 {
-  return mpOptions->mQuickSavingEnabled && mpQuickSave;
+  return !mpDeathmatch && mpOptions->mQuickSavingEnabled && mpQuickSave;
 }
 
 

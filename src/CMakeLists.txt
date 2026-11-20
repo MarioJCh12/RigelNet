@@ -228,6 +228,7 @@ set(core_sources
     game_logic/entity_factory.cpp
     game_logic/entity_factory.hpp
     game_logic/game_world.cpp
+    game_logic/game_world_deathmatch.cpp
     game_logic/game_world.hpp
     game_logic/global_dependencies.hpp
     game_logic/hazards/lava_fountain.cpp

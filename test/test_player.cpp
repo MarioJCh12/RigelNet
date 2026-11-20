@@ -29,6 +29,7 @@
 #include <engine/random_number_generator.hpp>
 #include <engine/sprite_tools.hpp>
 #include <engine/visual_components.hpp>
+#include <game_logic/damage_components.hpp>
 #include <game_logic/global_dependencies.hpp>
 #include <game_logic/player.hpp>
 #include <game_logic/player/components.hpp>
@@ -1488,10 +1489,12 @@ TEST_CASE("Player movement")
             }
 
             CHECK(listener.mCallCount == 0);
+            CHECK(!player.deathSequenceFinished());
 
             player.update({});
 
             CHECK(listener.mCallCount == 1);
+            CHECK(player.deathSequenceFinished());
 
             // Update some more frames, event shouldn't fire again
             for (int i = 0; i < 10; ++i)
@@ -1500,6 +1503,14 @@ TEST_CASE("Player movement")
             }
 
             CHECK(listener.mCallCount == 1);
+
+            SECTION("Respawning resets death sequence state")
+            {
+              player.reSpawnAt({8, 16});
+
+              CHECK(!player.isDead());
+              CHECK(!player.deathSequenceFinished());
+            }
           }
         }
       }
@@ -1652,6 +1663,21 @@ TEST_CASE("Player movement")
       REQUIRE(!fireShotSpy.empty());
       return fireShotSpy.back();
     };
+
+    SECTION("Shots are tagged with the player who fired them")
+    {
+      player.update(fireButtonTriggered);
+      REQUIRE(fireShotSpy.size() == 1);
+
+      auto numTaggedProjectiles = 0;
+      entityx.entities.each<components::ProjectileOwner>(
+        [&](ex::Entity, const components::ProjectileOwner& owner)
+        {
+          CHECK(owner.mOwner == playerEntity);
+          ++numTaggedProjectiles;
+        });
+      CHECK(numTaggedProjectiles == 1);
+    }
 
     SECTION("Fires one shot when fire button triggered")
     {

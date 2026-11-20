@@ -15,6 +15,7 @@ add_executable(tests
     test_high_score_list.cpp
     test_json_utils.cpp
     test_letter_collection.cpp
+    test_multiplayer.cpp
     test_physics_system.cpp
     test_player.cpp
     test_rng.cpp

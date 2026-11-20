@@ -82,11 +82,25 @@ const VerticalDeadZone& deadZoneForStateOf(const Player& player)
 }
 
 
-base::Rect<int> deadZoneRect(const Player& player)
+base::Rect<int>
+  deadZoneRect(const Player& player, const base::Size& viewportSize)
 {
-  const auto& verticalDeadZone = deadZoneForStateOf(player);
+  auto verticalDeadZone = deadZoneForStateOf(player);
   const auto deadZoneStartX =
     player.stateIs<InShip>() ? IN_SHIP_DEAD_ZONE_START_X : DEAD_ZONE_START_X;
+
+  // The dead zone is made for the original viewport height. Views in local
+  // multiplayer can be less tall (when the screen is split horizontally),
+  // so the dead zone needs to shrink in that case to keep the player
+  // visible. This has no effect on the regular viewport.
+  const auto lastVisibleRow = viewportSize.height - 1;
+  if (verticalDeadZone.mEnd > lastVisibleRow)
+  {
+    const auto playerHeight = player.worldSpaceCollisionBox().size.height;
+    verticalDeadZone.mEnd = lastVisibleRow;
+    verticalDeadZone.mStart = std::max(
+      0, std::min(verticalDeadZone.mStart, lastVisibleRow - playerHeight - 1));
+  }
 
   return base::makeRect<int>(
     {deadZoneStartX, verticalDeadZone.mStart},
@@ -128,7 +142,7 @@ base::Vec2 offsetToDeadZone(
   const base::Size& viewportSize)
 {
   const auto playerBounds = normalizedPlayerBounds(player, viewportSize);
-  auto worldSpaceDeadZone = deadZoneRect(player);
+  auto worldSpaceDeadZone = deadZoneRect(player, viewportSize);
   worldSpaceDeadZone.topLeft += cameraPosition;
 
   // horizontal
@@ -258,7 +272,12 @@ void Camera::centerViewOnPlayer()
   auto playerPos =
     normalizedPlayerBounds(*mpPlayer, mViewportSize).bottomLeft();
 
-  setPosition(playerPos - INITIAL_CAMERA_OFFSET);
+  // Keep the player visible in views that are less tall than the original
+  // (local multiplayer split-screen). Same as before for regular views.
+  const auto initialOffset = base::Vec2{
+    INITIAL_CAMERA_OFFSET.x,
+    std::min(INITIAL_CAMERA_OFFSET.y, mViewportSize.height - 1)};
+  setPosition(playerPos - initialOffset);
 }
 
 

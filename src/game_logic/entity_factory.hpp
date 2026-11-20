@@ -85,6 +85,14 @@ public:
   void createEntitiesForLevel(
     const data::map::ActorDescriptionList& actors) override;
 
+  /** Create the entity for a single actor from a level file
+   *
+   * Same as what createEntitiesForLevel() does for each actor. Exposed so
+   * that multiplayer modes can re-spawn items which have been picked up.
+   */
+  entityx::Entity
+    createEntityForLevelActor(const data::map::LevelData::Actor& actor);
+
   engine::components::Sprite
     createSpriteForId(const data::ActorID actorID) override;
 

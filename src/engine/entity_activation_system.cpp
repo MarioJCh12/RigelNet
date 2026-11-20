@@ -81,21 +81,40 @@ void markActiveEntities(
   const base::Vec2& cameraPosition,
   const base::Size& viewportSize)
 {
-  const BoundingBox activeRegionBox{cameraPosition, viewportSize};
+  markActiveEntities(
+    es,
+    std::vector<base::Rect<int>>{BoundingBox{cameraPosition, viewportSize}});
+}
 
-  es.each<WorldPosition, BoundingBox>([&activeRegionBox](
-                                        entityx::Entity entity,
-                                        const WorldPosition& position,
-                                        const BoundingBox& bbox) {
-    const auto worldSpaceBbox = toWorldSpace(bbox, position);
-    const auto inActiveRegion = worldSpaceBbox.intersects(activeRegionBox);
-    const auto active = determineActiveState(entity, inActiveRegion);
-    setTag<Active>(entity, active);
-    if (active)
+
+void markActiveEntities(
+  entityx::EntityManager& es,
+  const std::vector<base::Rect<int>>& activeRegions)
+{
+  es.each<WorldPosition, BoundingBox>(
+    [&activeRegions](
+      entityx::Entity entity,
+      const WorldPosition& position,
+      const BoundingBox& bbox)
     {
-      entity.component<Active>()->mIsOnScreen = inActiveRegion;
-    }
-  });
+      const auto worldSpaceBbox = toWorldSpace(bbox, position);
+      auto inActiveRegion = false;
+      for (const auto& region : activeRegions)
+      {
+        if (worldSpaceBbox.intersects(region))
+        {
+          inActiveRegion = true;
+          break;
+        }
+      }
+
+      const auto active = determineActiveState(entity, inActiveRegion);
+      setTag<Active>(entity, active);
+      if (active)
+      {
+        entity.component<Active>()->mIsOnScreen = inActiveRegion;
+      }
+    });
 }
 
 } // namespace rigel::engine

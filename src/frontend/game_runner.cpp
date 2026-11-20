@@ -33,10 +33,13 @@ namespace
 {
 
 template <typename... Args>
-std::unique_ptr<game_logic::IGameWorld>
-  createGameWorld(const data::GameplayStyle gameplayStyle, Args&&... args)
+std::unique_ptr<game_logic::IGameWorld> createGameWorld(
+  const data::GameplayStyle gameplayStyle,
+  const bool isDeathmatch,
+  Args&&... args)
 {
-  if (gameplayStyle == data::GameplayStyle::Classic)
+  // Deathmatch is only implemented for the modern (non-classic) game logic
+  if (gameplayStyle == data::GameplayStyle::Classic && !isDeathmatch)
   {
     return std::make_unique<game_logic::GameWorld_Classic>(
       std::forward<Args>(args)...);
@@ -59,6 +62,7 @@ GameRunner::GameRunner(
   : mContext(context)
   , mpWorld(createGameWorld(
       context.mpUserProfile->mOptions.mGameplayStyle,
+      context.mpServiceProvider->commandLineOptions().mDeathmatch.has_value(),
       pPersistentPlayerState,
       sessionId,
       context,
@@ -67,6 +71,20 @@ GameRunner::GameRunner(
   , mInputHandler(&context.mpUserProfile->mOptions)
   , mMenu(context, pPersistentPlayerState, mpWorld.get(), sessionId)
 {
+  const auto& deathmatchOptions =
+    context.mpServiceProvider->commandLineOptions().mDeathmatch;
+  if (deathmatchOptions && mpWorld->supportsDeathmatch())
+  {
+    mpWorld->enableDeathmatch(*deathmatchOptions);
+
+    mInputHandler.setMultiplayerSlot(0);
+    for (auto slot = 1; slot < deathmatchOptions->mNumPlayers; ++slot)
+    {
+      auto& handler =
+        mExtraInputHandlers.emplace_back(&context.mpUserProfile->mOptions);
+      handler.setMultiplayerSlot(slot);
+    }
+  }
 }
 
 
@@ -87,6 +105,11 @@ void GameRunner::handleEvent(const SDL_Event& event)
 
   const auto menuCommand =
     mInputHandler.handleEvent(event, mpWorld->isPlayerInShip());
+
+  for (auto& handler : mExtraInputHandlers)
+  {
+    handler.handleEvent(event, false);
+  }
 
   switch (menuCommand)
   {
@@ -150,8 +173,23 @@ float GameRunner::interpolationFactor(const engine::TimeDelta dt) const
 
 void GameRunner::updateWorld(const engine::TimeDelta dt)
 {
-  auto update = [this]() {
-    mpWorld->updateGameLogic(mInputHandler.fetchInput());
+  auto update = [this]()
+  {
+    if (mExtraInputHandlers.empty())
+    {
+      mpWorld->updateGameLogic(mInputHandler.fetchInput());
+    }
+    else
+    {
+      std::vector<game_logic::PlayerInput> inputs;
+      inputs.push_back(mInputHandler.fetchInput());
+      for (auto& handler : mExtraInputHandlers)
+      {
+        inputs.push_back(handler.fetchInput());
+      }
+
+      mpWorld->updateGameLogicMultiplayer(inputs);
+    }
   };
 
 
@@ -191,6 +229,10 @@ bool GameRunner::updateMenu(const engine::TimeDelta dt)
   if (mMenu.isActive())
   {
     mInputHandler.reset();
+    for (auto& handler : mExtraInputHandlers)
+    {
+      handler.reset();
+    }
 
     if (mMenu.isTransparent())
     {

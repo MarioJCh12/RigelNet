@@ -18,6 +18,7 @@
 
 #include "base/spatial_types.hpp"
 #include "data/game_session_data.hpp"
+#include "game_logic_common/deathmatch_options.hpp"
 
 #include <optional>
 #include <string>
@@ -46,6 +47,9 @@ struct CommandLineOptions
   bool mDisableAudio = false;
   bool mPlayDemo = false;
   std::optional<base::Vec2> mPlayerPosition;
+
+  /** If set, start a local split-screen deathmatch on mLevelToJumpTo */
+  std::optional<game_logic::DeathmatchOptions> mDeathmatch;
 };
 
 } // namespace rigel

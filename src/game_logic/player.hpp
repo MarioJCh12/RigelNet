@@ -290,6 +290,14 @@ public:
   bool isCloaked() const;
   bool isDead() const;
   bool isIncapacitated() const;
+
+  /** True once the death animation has fully played out.
+   *
+   * In single player, this is the point at which the level is restarted.
+   * In multiplayer modes, it's used to decide when to respawn the player.
+   * Reset by reSpawnAt().
+   */
+  bool deathSequenceFinished() const { return mDeathSequenceFinished; }
   bool isLookingUp() const;
   bool isCrouching() const;
   bool isRidingElevator() const;
@@ -376,6 +384,7 @@ private:
 
   void fireShot();
   bool canFire() const;
+  void signalDeathSequenceFinished();
 
   void setVisualState(VisualState visualState);
   void jump();
@@ -411,6 +420,7 @@ private:
   bool mRecoilAnimationActive = false;
   bool mIsRidingElevator = false;
   bool mJumpRequested = false;
+  bool mDeathSequenceFinished = false;
 };
 
 } // namespace rigel::game_logic

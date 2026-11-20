@@ -169,6 +169,9 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
   auto showHelp = false;
   CommandLineOptions config;
 
+  auto deathmatchEnabled = false;
+  auto deathmatchOptions = game_logic::DeathmatchOptions{};
+
   // clang-format off
   auto optionsParser = lyra::help(showHelp)
     | lyra::opt(config.mSkipIntro)["-s"]["--skip-intro"]
@@ -179,6 +182,19 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
       .help("Disable all audio output")
     | lyra::opt(config.mPlayDemo)["--play-demo"]
       .help("Play pre-recorded demo")
+    | lyra::opt(deathmatchEnabled)["--deathmatch"]
+      .help(
+        "Local split-screen deathmatch. Uses the map given via --play-level, "
+        "or L1 if none is given")
+    | lyra::opt(deathmatchOptions.mNumPlayers, "2-4")["--players"]
+      .help("Number of deathmatch players (default 2)")
+    | lyra::opt(deathmatchOptions.mFragLimit, "kills")["--frag-limit"]
+      .help("Kills needed to win a deathmatch round (default 10)")
+    | lyra::opt(deathmatchOptions.mItemRespawnSeconds, "seconds")
+      ["--item-respawn"]
+      .help("Seconds until items re-appear in deathmatch (default 20)")
+    | lyra::opt(deathmatchOptions.mKeepEnemies)["--keep-enemies"]
+      .help("Don't remove enemies from the map in deathmatch")
     | lyra::group([&](const lyra::group&){})
       .add_argument(lyra::opt([&](const std::string& levelSpec){
           config.mLevelToJumpTo = data::GameSessionId{
@@ -244,6 +260,28 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
   if (!config.mGamePath.empty() && config.mGamePath.back() != '/')
   {
     config.mGamePath += "/";
+  }
+
+  if (deathmatchEnabled)
+  {
+    if (
+      deathmatchOptions.mNumPlayers < game_logic::MIN_DEATHMATCH_PLAYERS ||
+      deathmatchOptions.mNumPlayers > game_logic::MAX_DEATHMATCH_PLAYERS)
+    {
+      std::cerr << "ERROR: --players must be between "
+                << game_logic::MIN_DEATHMATCH_PLAYERS << " and "
+                << game_logic::MAX_DEATHMATCH_PLAYERS << "\n";
+      return -1;
+    }
+
+    if (!config.mLevelToJumpTo)
+    {
+      config.mLevelToJumpTo = data::GameSessionId{0, 0};
+    }
+
+    // Starting position overrides make no sense with multiple players
+    config.mPlayerPosition.reset();
+    config.mDeathmatch = deathmatchOptions;
   }
 
   return config;

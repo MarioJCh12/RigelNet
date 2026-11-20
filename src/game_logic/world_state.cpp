@@ -82,6 +82,8 @@ void copyAllComponents(entityx::Entity from, entityx::Entity to)
   copyComponentIfPresent<OverrideDrawOrder>(from, to);
   copyComponentIfPresent<PlayerDamaging>(from, to);
   copyComponentIfPresent<PlayerProjectile>(from, to);
+  copyComponentIfPresent<ProjectileOwner>(from, to);
+  copyComponentIfPresent<TintColor>(from, to);
   copyComponentIfPresent<RadarDish>(from, to);
   copyComponentIfPresent<Shootable>(from, to);
   copyComponentIfPresent<SolidBody>(from, to);

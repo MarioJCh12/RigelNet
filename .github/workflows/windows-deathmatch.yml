@@ -1,0 +1,39 @@
+name: Windows deathmatch build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ deathmatch ]
+
+jobs:
+  build_windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install SDL2 and SDL2_mixer via vcpkg
+      run: vcpkg install sdl2:x64-windows sdl2-mixer:x64-windows
+
+    - name: Run CMake
+      run: >
+        cmake -B build -A x64
+        -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        -DVCPKG_TARGET_TRIPLET=x64-windows
+
+    - name: Build
+      run: cmake --build build --config Release --target RigelEngine --parallel
+
+    - name: Package
+      run: |
+        New-Item -ItemType Directory -Force -Path package | Out-Null
+        Copy-Item build/src/Release/*.exe package/
+        Copy-Item build/src/Release/*.dll package/
+        Copy-Item DEATHMATCH.md package/
+        Copy-Item LICENSE.md package/
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: RigelEngine-deathmatch-windows
+        path: package

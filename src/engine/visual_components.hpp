@@ -228,6 +228,22 @@ struct DrawTopMost
 };
 
 
+/** Multiplies all of the entity's sprite pixels by the given color.
+ *
+ * Used to tell apart multiple players in multiplayer modes, which would
+ * otherwise all look identical.
+ */
+struct TintColor
+{
+  explicit TintColor(const base::Color& color)
+    : mColor(color)
+  {
+  }
+
+  base::Color mColor;
+};
+
+
 struct OverrideDrawOrder
 {
   explicit OverrideDrawOrder(const int drawOrder)

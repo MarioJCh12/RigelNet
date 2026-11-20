@@ -99,7 +99,9 @@ void collectVisibleSprites(
                   const bool flashingWhite,
                   const bool useCloakEffect,
                   const bool drawTopmost,
-                  const int drawOrder) {
+                  const int drawOrder,
+                  const std::optional<base::Color>& tint)
+  {
     const auto topLeft = drawPosition(frame, position);
 
     // Discard sprites outside visible area
@@ -115,8 +117,8 @@ void collectVisibleSprites(
       engine::interpolatedPixelPosition(
         previousTopLeft, topLeft, interpolationFactor),
       data::tilesToPixels(frame.mDimensions)};
-    const auto drawSpec =
-      SpriteDrawSpec{destRect, frame.mImageId, flashingWhite, useCloakEffect};
+    const auto drawSpec = SpriteDrawSpec{
+      destRect, frame.mImageId, flashingWhite, useCloakEffect, tint};
 
     output.push_back({drawSpec, drawOrder, drawTopmost});
   };
@@ -135,6 +137,11 @@ void collectVisibleSprites(
         : position;
 
       const auto drawTopmost = entity.has_component<DrawTopMost>();
+      const auto tint = entity.has_component<components::TintColor>()
+        ? std::optional<base::Color>{entity
+                                       .component<const components::TintColor>()
+                                       ->mColor}
+        : std::nullopt;
       const auto drawOrder = entity.has_component<OverrideDrawOrder>()
         ? entity.component<const OverrideDrawOrder>()->mDrawOrder
         : sprite.mpDrawData->mDrawOrder;
@@ -158,7 +165,8 @@ void collectVisibleSprites(
           sprite.mFlashingWhiteStates.test(slotIndex),
           sprite.mUseCloakEffect,
           drawTopmost,
-          drawOrder);
+          drawOrder,
+          tint);
         ++slotIndex;
       }
 
@@ -177,7 +185,8 @@ void collectVisibleSprites(
             false,
             sprite.mUseCloakEffect,
             drawTopmost,
-            drawOrder);
+            drawOrder,
+            tint);
         }
       }
 
@@ -390,6 +399,12 @@ void SpriteRenderingSystem::renderSprite(
     const auto [textureId, texCoords] = mpTextureAtlas->drawData(spec.mImageId);
 
     fx.drawCloakEffect(textureId, texCoords, spec.mDestRect);
+  }
+  else if (spec.mTint)
+  {
+    const auto saved = renderer::saveState(mpRenderer);
+    mpRenderer->setColorModulation(*spec.mTint);
+    mpTextureAtlas->draw(spec.mImageId, spec.mDestRect);
   }
   else
   {

@@ -26,6 +26,7 @@ RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
 RIGEL_RESTORE_WARNINGS
 
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -57,6 +58,7 @@ struct SpriteDrawSpec
   int mImageId;
   bool mIsFlashingWhite;
   bool mUseCloakEffect;
+  std::optional<base::Color> mTint = std::nullopt;
 };
 
 

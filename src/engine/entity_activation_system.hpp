@@ -23,6 +23,8 @@ RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
 RIGEL_RESTORE_WARNINGS
 
+#include <vector>
+
 
 namespace rigel::engine
 {
@@ -32,4 +34,12 @@ void markActiveEntities(
   const base::Vec2& cameraPosition,
   const base::Size& viewportSize);
 
+/** Variant for multiple simultaneous viewports (e.g. split-screen).
+ *
+ * An entity counts as being in the active region if it intersects any of
+ * the given regions.
+ */
+void markActiveEntities(
+  entityx::EntityManager& es,
+  const std::vector<base::Rect<int>>& activeRegions);
 }

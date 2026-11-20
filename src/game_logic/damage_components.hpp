@@ -117,6 +117,22 @@ struct PlayerProjectile
   Type mType;
 };
 
+
+/** Identifies the player who fired a projectile.
+ *
+ * Used in multiplayer modes to let players' shots damage each other (but
+ * not the shooter), and to credit kills.
+ */
+struct ProjectileOwner
+{
+  explicit ProjectileOwner(entityx::Entity owner)
+    : mOwner(owner)
+  {
+  }
+
+  entityx::Entity mOwner;
+};
+
 } // namespace components
 
 

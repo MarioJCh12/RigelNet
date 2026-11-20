@@ -31,6 +31,7 @@ RIGEL_DISABLE_WARNINGS
 RIGEL_RESTORE_WARNINGS
 
 #include <memory>
+#include <vector>
 
 
 namespace rigel
@@ -67,6 +68,9 @@ private:
 
   std::unique_ptr<game_logic::IGameWorld> mpWorld;
   InputHandler mInputHandler;
+
+  // Input for players 2 and up in local multiplayer (empty otherwise)
+  std::vector<InputHandler> mExtraInputHandlers;
   engine::TimeDelta mAccumulatedTime = 0.0;
   ui::IngameMenu mMenu;
   bool mShowDebugText = false;

@@ -386,46 +386,55 @@ void EntityFactory::createEntitiesForLevel(
 {
   for (const auto& actor : actors)
   {
-    // Difficulty/section markers should never appear in the actor descriptions
-    // coming from the loader, as they are handled during pre-processing.
-    assert(
-      actor.mID != ActorID::META_Appear_only_in_med_hard_difficulty &&
-      actor.mID != ActorID::META_Appear_only_in_hard_difficulty &&
-      actor.mID != ActorID::META_Dynamic_geometry_marker_1 &&
-      actor.mID != ActorID::META_Dynamic_geometry_marker_2);
-
-    auto entity = mpEntityManager->create();
-
-    auto position = actor.mPosition;
-    if (actor.mAssignedArea)
-    {
-      // For dynamic geometry, the original position refers to the top-left
-      // corner of the assigned area, but it refers to the bottom-left corner
-      // for all other entities. Adjust the position here so that it's also
-      // bottom-left.
-      position.y += actor.mAssignedArea->size.height - 1;
-    }
-    entity.assign<WorldPosition>(position);
-
-    BoundingBox boundingBox;
-    if (actor.mAssignedArea)
-    {
-      const auto mapSectionRect = *actor.mAssignedArea;
-      entity.assign<DynamicGeometrySection>(mapSectionRect);
-      engine::enableInterpolation(entity);
-
-      boundingBox = mapSectionRect;
-      boundingBox.topLeft = {0, 0};
-    }
-    else if (engine::hasAssociatedSprite(actor.mID))
-    {
-      const auto sprite = createSpriteForId(actor.mID);
-      boundingBox = mpSpriteFactory->actorFrameRect(actor.mID, 0);
-      entity.assign<Sprite>(sprite);
-    }
-
-    configureEntity(entity, actor.mID, boundingBox);
+    createEntityForLevelActor(actor);
   }
+}
+
+
+entityx::Entity EntityFactory::createEntityForLevelActor(
+  const data::map::LevelData::Actor& actor)
+{
+  // Difficulty/section markers should never appear in the actor descriptions
+  // coming from the loader, as they are handled during pre-processing.
+  assert(
+    actor.mID != ActorID::META_Appear_only_in_med_hard_difficulty &&
+    actor.mID != ActorID::META_Appear_only_in_hard_difficulty &&
+    actor.mID != ActorID::META_Dynamic_geometry_marker_1 &&
+    actor.mID != ActorID::META_Dynamic_geometry_marker_2);
+
+  auto entity = mpEntityManager->create();
+
+  auto position = actor.mPosition;
+  if (actor.mAssignedArea)
+  {
+    // For dynamic geometry, the original position refers to the top-left
+    // corner of the assigned area, but it refers to the bottom-left corner
+    // for all other entities. Adjust the position here so that it's also
+    // bottom-left.
+    position.y += actor.mAssignedArea->size.height - 1;
+  }
+  entity.assign<WorldPosition>(position);
+
+  BoundingBox boundingBox;
+  if (actor.mAssignedArea)
+  {
+    const auto mapSectionRect = *actor.mAssignedArea;
+    entity.assign<DynamicGeometrySection>(mapSectionRect);
+    engine::enableInterpolation(entity);
+
+    boundingBox = mapSectionRect;
+    boundingBox.topLeft = {0, 0};
+  }
+  else if (engine::hasAssociatedSprite(actor.mID))
+  {
+    const auto sprite = createSpriteForId(actor.mID);
+    boundingBox = mpSpriteFactory->actorFrameRect(actor.mID, 0);
+    entity.assign<Sprite>(sprite);
+  }
+
+  configureEntity(entity, actor.mID, boundingBox);
+
+  return entity;
 }
 
 

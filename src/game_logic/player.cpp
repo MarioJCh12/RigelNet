@@ -369,6 +369,7 @@ void Player::synchronizeTo(const Player& other, entityx::EntityManager& es)
   mRecoilAnimationActive = other.mRecoilAnimationActive;
   mIsRidingElevator = other.mIsRidingElevator;
   mJumpRequested = other.mJumpRequested;
+  mDeathSequenceFinished = other.mDeathSequenceFinished;
 
   *mEntity.component<c::Sprite>() = *other.mEntity.component<const c::Sprite>();
   *mEntity.component<c::BoundingBox>() =
@@ -813,6 +814,7 @@ void Player::reSpawnAt(const base::Vec2& spawnPosition)
   mRecoilAnimationActive = false;
   mIsOddFrame = false;
   mAttachedSpiders.reset();
+  mDeathSequenceFinished = false;
 
   mEntity.component<c::Sprite>()->mFramesToRender = {0};
   engine::removeSafely<components::DestructionEffects>(mEntity);
@@ -1524,7 +1526,7 @@ void Player::updateDeathAnimation()
 
   if (position.y > mpMap->height() + 3)
   {
-    mpEvents->emit<rigel::events::PlayerDied>();
+    signalDeathSequenceFinished();
     return;
   }
 
@@ -1567,7 +1569,7 @@ void Player::updateDeathAnimation()
 
         if (state.mFramesElapsed == 35)
         {
-          mpEvents->emit<rigel::events::PlayerDied>();
+          signalDeathSequenceFinished();
           deathAnimationState = Finished{};
         }
       }
@@ -1598,7 +1600,7 @@ void Player::updateGettingSuckedIntoSpaceAnimation(
   if (position().x < 0 || position().x >= mpMap->width())
   {
     mpServiceProvider->playSound(data::SoundId::DukeDeath);
-    mpEvents->emit<rigel::events::PlayerDied>();
+    signalDeathSequenceFinished();
   }
 }
 
@@ -1798,8 +1800,15 @@ void Player::dieIfFallenOutOfMap()
   if (position().y > mpMap->height() + 3)
   {
     mpServiceProvider->playSound(data::SoundId::DukeDeath);
-    mpEvents->emit<rigel::events::PlayerDied>();
+    signalDeathSequenceFinished();
   }
+}
+
+
+void Player::signalDeathSequenceFinished()
+{
+  mDeathSequenceFinished = true;
+  mpEvents->emit<rigel::events::PlayerDied>();
 }
 
 
@@ -1812,10 +1821,11 @@ void Player::fireShot()
   {
     const auto isFacingLeft = orientation() == c::Orientation::Left;
 
-    mpEntityFactory->spawnProjectile(
+    auto projectile = mpEntityFactory->spawnProjectile(
       ProjectileType::ShipLaser,
       position + base::Vec2{isFacingLeft ? -1 : 8, 0},
       direction);
+    projectile.assign<components::ProjectileOwner>(mEntity);
     spawnOneShotSprite(
       *mpEntityFactory,
       muzzleFlashActorId(direction),
@@ -1826,10 +1836,11 @@ void Player::fireShot()
   {
     const auto weaponType = mpPersistentPlayerState->weapon();
 
-    mpEntityFactory->spawnProjectile(
+    auto projectile = mpEntityFactory->spawnProjectile(
       projectileTypeForWeapon(weaponType),
       position + shotOffset(orientation(), mStance),
       direction);
+    projectile.assign<components::ProjectileOwner>(mEntity);
     mpPersistentPlayerState->useAmmo();
 
     mpServiceProvider->playSound(soundIdForWeapon(weaponType));

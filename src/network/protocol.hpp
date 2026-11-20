@@ -46,7 +46,7 @@ namespace rigel::network
 {
 
 constexpr std::uint32_t PROTOCOL_MAGIC = 0x4d443252; // "R2DM"
-constexpr std::uint16_t PROTOCOL_VERSION = 2;
+constexpr std::uint16_t PROTOCOL_VERSION = 3;
 constexpr std::uint16_t DEFAULT_PORT = 7777;
 
 enum Channel : std::uint8_t

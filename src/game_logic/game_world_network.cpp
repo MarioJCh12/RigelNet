@@ -31,6 +31,7 @@
 
 #include "game_world.hpp"
 
+#include "data/unit_conversions.hpp"
 #include "engine/base_components.hpp"
 #include "engine/sprite_rendering_system.hpp"
 #include "engine/visual_components.hpp"
@@ -51,6 +52,9 @@ using engine::components::WorldPosition;
 
 namespace
 {
+
+/** Extra tiles around a network player's view to include sprites from */
+constexpr auto SNAPSHOT_SPRITE_MARGIN = 8;
 
 std::vector<std::uint32_t> copyMapTiles(const data::map::Map& map)
 {
@@ -333,13 +337,27 @@ NetSnapshot GameWorld::captureSnapshot(const int playerIndex)
     playerSprite.mShow = false;
   }
 
+  //
+  // The client's camera is usually a bit ahead of ours, since it follows the
+  // client's own simulation of its player. So we include sprites a bit
+  // outside of our view of this player as well, to avoid them popping in
+  // late at the edges of the client's screen.
+  const auto margin =
+    base::Vec2{SNAPSHOT_SPRITE_MARGIN, SNAPSHOT_SPRITE_MARGIN};
+  const auto collectionStart = snapshot.mCameraPosition - margin;
+  const auto collectionSize = base::Size{
+    participant.mRemoteViewportSize.width + 2 * SNAPSHOT_SPRITE_MARGIN,
+    participant.mRemoteViewportSize.height + 2 * SNAPSHOT_SPRITE_MARGIN};
+
   state.mSpriteRenderingSystem.update(
-    state.mEntities,
-    participant.mRemoteViewportSize,
-    snapshot.mCameraPosition,
-    1.0f);
+    state.mEntities, collectionSize, collectionStart, 1.0f);
 
   playerSprite.mShow = playerSpriteWasShown;
+
+  // The sprite rendering system gives us positions relative to the given
+  // camera position. We send world positions instead, since the client
+  // draws them relative to its own camera.
+  const auto worldOffset = data::tilesToPixels(collectionStart);
 
   const auto& sprites = state.mSpriteRenderingSystem.sprites();
   snapshot.mSprites.reserve(sprites.size());
@@ -347,6 +365,7 @@ NetSnapshot GameWorld::captureSnapshot(const int playerIndex)
   {
     NetSprite sprite;
     sprite.mDestRect = spec.mDestRect;
+    sprite.mDestRect.topLeft += worldOffset;
     sprite.mImageId = spec.mImageId;
     if (spec.mIsFlashingWhite)
     {
@@ -547,9 +566,22 @@ void GameWorld::updateRemoteSprites(const float interpolationFactor)
     localSprites = state.mSpriteRenderingSystem.sprites();
   }
 
+  // The host sends world positions. Draw them relative to our camera, which
+  // may be ahead of the host's camera due to prediction. This keeps static
+  // things like items exactly in place while our view moves.
+  const auto cameraPosition = remoteView.mIsPredicting
+    ? state.mCamera.position()
+    : remoteView.mSnapshot.mCameraPosition;
+  const auto cameraOffset = data::tilesToPixels(cameraPosition);
+
+  auto hostSprites = remoteView.mHostSprites;
+  for (auto& sprite : hostSprites)
+  {
+    sprite.mDestRect.topLeft -= cameraOffset;
+  }
+
   // Our player goes on top of the host's regular sprites, but below the
   // ones that are drawn in front of the map's foreground
-  const auto& hostSprites = remoteView.mHostSprites;
   const auto firstForeground = std::clamp(
     remoteView.mHostFirstForegroundSprite, 0, int(hostSprites.size()));
 

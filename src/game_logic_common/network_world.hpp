@@ -34,7 +34,8 @@ namespace rigel::game_logic
 // The types here describe what's sent from host to client.
 
 
-/** One sprite to draw, in world pixel coordinates */
+/** One sprite to draw. The destination is in world pixel coordinates, not
+ * relative to a camera. */
 struct NetSprite
 {
   enum Flags : std::uint8_t

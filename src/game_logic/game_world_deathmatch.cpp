@@ -35,6 +35,7 @@
 #include "frontend/game_service_provider.hpp"
 #include "game_logic/actor_tag.hpp"
 #include "game_logic/collectable_components.hpp"
+#include "game_logic/deathmatch_spawn_points.hpp"
 #include "game_logic/deathmatch_state.hpp"
 #include "game_logic/interactive/item_container.hpp"
 #include "game_logic/player/components.hpp"
@@ -135,59 +136,6 @@ const char* shortWeaponName(const data::WeaponType type)
 }
 
 
-bool isFreeSpawnSpot(
-  const data::map::Map& map,
-  const engine::CollisionChecker& collisionChecker,
-  const base::Vec2& position)
-{
-  const auto bbox = engine::toWorldSpace(DEFAULT_PLAYER_BOUNDS, position);
-
-  if (
-    bbox.left() < 0 || bbox.top() < 1 || bbox.right() >= map.width() ||
-    bbox.bottom() + 1 >= map.height())
-  {
-    return false;
-  }
-
-  for (auto y = bbox.top(); y <= bbox.bottom(); ++y)
-  {
-    for (auto x = bbox.left(); x <= bbox.right(); ++x)
-    {
-      if (map.collisionData(x, y).isSolidOn(data::map::SolidEdge::any()))
-      {
-        return false;
-      }
-    }
-  }
-
-  return collisionChecker.isOnSolidGround(bbox);
-}
-
-
-std::optional<base::Vec2> findFreeSpawnSpotNear(
-  const data::map::Map& map,
-  const engine::CollisionChecker& collisionChecker,
-  const base::Vec2& position)
-{
-  static constexpr int Y_OFFSETS[] = {0, 1, -1, 2, -2, 3, -3, 4, 5, 6};
-  static constexpr int X_OFFSETS[] = {0, -1, -2, 1};
-
-  for (const auto dy : Y_OFFSETS)
-  {
-    for (const auto dx : X_OFFSETS)
-    {
-      const auto candidate = position + base::Vec2{dx, dy};
-      if (isFreeSpawnSpot(map, collisionChecker, candidate))
-      {
-        return candidate;
-      }
-    }
-  }
-
-  return std::nullopt;
-}
-
-
 int distanceSquared(const base::Vec2& a, const base::Vec2& b)
 {
   const auto d = a - b;
@@ -281,6 +229,10 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
     LOG_F(INFO, "Removed %d enemies", int(toRemove.size()));
   }
 
+  // Map sections that can be opened or destroyed during gameplay (shootable
+  // walls, sliding doors etc.), needed for finding spawn points
+  std::vector<base::Rect<int>> openableAreas;
+
   // Set up item respawning. To re-create an item, we need its description
   // from the level file, so we load the level's actor list once more and
   // match it up with the item entities currently in the world (which are
@@ -290,6 +242,14 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
       assets::levelFileName(mSessionId.mEpisode, mSessionId.mLevel),
       *mpResources,
       mSessionId.mDifficulty);
+
+    for (const auto& actor : levelData.mActors)
+    {
+      if (actor.mAssignedArea)
+      {
+        openableAreas.push_back(*actor.mAssignedArea);
+      }
+    }
 
     std::vector<bool> actorUsed(levelData.mActors.size(), false);
 
@@ -324,52 +284,16 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
   }
 
   // Collect spawn points. Places where the level designer put items are
-  // usually reachable, so we use those plus the original player start.
+  // usually good candidates, so we use those plus the original player start.
   {
-    auto addSpawnPoint = [&](const base::Vec2& position)
-    {
-      if (
-        auto spot =
-          findFreeSpawnSpotNear(state.mMap, state.mCollisionChecker, position))
-      {
-        const auto tooClose = std::any_of(
-          dm.mSpawnPoints.begin(),
-          dm.mSpawnPoints.end(),
-          [&](const base::Vec2& existing)
-          { return distanceSquared(existing, *spot) < 4 * 4; });
-
-        if (!tooClose)
-        {
-          dm.mSpawnPoints.push_back(*spot);
-        }
-      }
-    };
-
-    addSpawnPoint(state.mPlayer.position());
+    std::vector<base::Vec2> itemPositions;
     for (const auto& spawner : dm.mItemSpawners)
     {
-      addSpawnPoint(spawner.mActor.mPosition);
+      itemPositions.push_back(spawner.mActor.mPosition);
     }
 
-    // Not enough items in this level? Scan the map for open spots.
-    if (dm.mSpawnPoints.size() < 8)
-    {
-      for (auto y = 1; y < state.mMap.height() - 1; y += 3)
-      {
-        for (auto x = 0; x < state.mMap.width() - 3; x += 5)
-        {
-          if (isFreeSpawnSpot(state.mMap, state.mCollisionChecker, {x, y}))
-          {
-            addSpawnPoint({x, y});
-          }
-        }
-      }
-    }
-
-    if (dm.mSpawnPoints.empty())
-    {
-      dm.mSpawnPoints.push_back(state.mPlayer.position());
-    }
+    dm.mSpawnPoints = findDeathmatchSpawnPoints(
+      state.mMap, state.mPlayer.position(), itemPositions, openableAreas);
 
     LOG_F(INFO, "Found %d spawn points", int(dm.mSpawnPoints.size()));
   }

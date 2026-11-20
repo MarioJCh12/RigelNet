@@ -24,6 +24,8 @@ en red (cliente/servidor) vendrá después y se apoya en lo que hay aquí.
 - **Muertes y reaparición.** Al terminar la animación de muerte, el jugador
   reaparece con la vida llena y la pistola. El punto de aparición se elige
   lejos de los rivales, y hay unos instantes de invulnerabilidad al reaparecer.
+  Solo se usan puntos a los que se puede llegar desde el inicio del nivel,
+  nunca los huecos vacíos que hay fuera de las paredes.
 - **Puntuación.** Cada baja suma 1 al jugador que dio el último golpe a la
   víctima. Eso incluye cuando la víctima termina muriendo por el entorno (lava,
   caídas, etc.) después de haber recibido un disparo. Si nadie le había dado,
@@ -96,44 +98,60 @@ shareware (episodio 1, mapas `L1` a `L8`) es gratuita y legal:
 
 <https://archive.org/download/msdos_DUKE2_shareware/DUKE2.zip>
 
-Descomprímela en una carpeta, por ejemplo `C:\Juegos\DUKE2`. Debe contener,
-entre otros, el archivo `NUKEM2.CMP`.
+Descomprímela en una carpeta, por ejemplo `E:\Juegos\DUKE2`. Solo hacen
+falta `NUKEM2.CMP` (imprescindible: mapas, gráficos y sonido) y `NUKEM2.F1` a
+`NUKEM2.F5` (animaciones de la intro). Los archivos `NUKEM2.-*` son partidas
+guardadas y récords del juego original: RigelEngine los importa si están, pero
+son opcionales.
 
 ## Compilar en Windows
 
 ### Opción A: Visual Studio en tu PC
 
-1. Instala:
-   - **Visual Studio 2022 Community** (gratis), con la carga de trabajo
-     *"Desarrollo para el escritorio con C++"*.
-   - **CMake**: <https://cmake.org/download/> (instalador *Windows x64*;
-     marca la opción de añadirlo al PATH).
-   - **Git**: <https://git-scm.com/download/win>
-2. Instala **vcpkg**, el gestor de librerías, desde una consola:
+Probado con Visual Studio 2026 Community.
+
+1. Instala **Visual Studio** con la carga de trabajo *"Desarrollo para el
+   escritorio con C++"*. Por defecto ya incluye el compilador MSVC, el SDK de
+   Windows y las herramientas de CMake, así que no hace falta instalar CMake
+   aparte. También necesitas **Git**: márcalo en "Componentes individuales"
+   ("Git para Windows") o instálalo desde <https://git-scm.com/download/win>.
+2. Abre **"Developer PowerShell for VS 2026"** (o la versión que tengas) desde
+   el menú Inicio. Haz todo lo que sigue en esa consola.
+3. Instala **vcpkg** y las librerías SDL2 (una sola vez):
    ```
    cd C:\
    git clone https://github.com/microsoft/vcpkg
    C:\vcpkg\bootstrap-vcpkg.bat
    C:\vcpkg\vcpkg install sdl2:x64-windows sdl2-mixer:x64-windows
    ```
-3. Descomprime el código de este zip, por ejemplo en `C:\RigelEngine`.
-4. Genera el proyecto de Visual Studio:
+4. Descomprime el código en una carpeta sin espacios ni tildes en la ruta, por
+   ejemplo `E:\RigelEngine-deathmatch`, y genera la solución de Visual Studio:
    ```
-   cd C:\RigelEngine
+   cd E:\RigelEngine-deathmatch
    mkdir build
    cd build
-   cmake .. -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows -A x64
+   cmake .. -A x64 "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
    ```
-5. Compila en modo Release (puedes hacerlo desde la consola, no hace falta
-   abrir Visual Studio):
-   ```
-   cmake --build . --config Release --target RigelEngine
-   ```
-6. El ejecutable queda en `C:\RigelEngine\build\src\Release\RigelEngine.exe`,
-   junto con `SDL2.dll` y `SDL2_mixer.dll`.
+   - **Las comillas son necesarias en PowerShell.** Sin ellas, PowerShell
+     corta `3.5` en el punto y CMake falla con *"Invalid
+     CMAKE_POLICY_VERSION_MINIMUM value 3"*. Si te pasa, borra la carpeta
+     `build` antes de repetir el comando.
+   - `CMAKE_POLICY_VERSION_MINIMUM` hace falta con CMake 4, que es el que
+     trae VS 2026, porque una librería incluida (entityx) pide una versión de
+     CMake muy antigua.
+   - Los avisos amarillos sobre `SDL2main` y entityx son normales.
+5. Abre `build\RigelEngine.slnx` (o `.sln`) en Visual Studio y:
+   - Cambia la configuración a **Release**.
+   - Clic derecho en **RigelEngine** → *Establecer como proyecto de inicio*.
+   - Clic derecho en **RigelEngine** → *Propiedades* → *Depuración* →
+     *Argumentos de comando*: `--deathmatch -l L1 "E:\Juegos\DUKE2"`
+   - **Ctrl+Shift+B** compila y **F5** ejecuta.
+6. El ejecutable queda en `build\src\Release\RigelEngine.exe`, junto con
+   `SDL2.dll` y `SDL2_mixer.dll`. Para llevarlo a otro PC, copia los tres.
 
-Si CMake dice que no encuentra SDL2, casi siempre es que la ruta de
-`CMAKE_TOOLCHAIN_FILE` está mal. Tiene que ser absoluta.
+Para editar el código, abre los archivos desde el Explorador de soluciones y
+vuelve a compilar. Si añades un archivo `.cpp` nuevo, agrégalo a
+`src/CMakeLists.txt`. Visual Studio vuelve a ejecutar CMake solo al compilar.
 
 ### Opción B: que GitHub lo compile por ti (sin instalar nada)
 
@@ -179,6 +197,7 @@ indica en qué paso; pásame ese error.
 |---|---|
 | `src/game_logic/game_world_deathmatch.cpp` | Toda la lógica del modo: alta de jugadores, reglas, daño entre jugadores, aparición, objetos y marcador |
 | `src/game_logic/deathmatch_state.hpp` | Estado de la partida y de cada jugador |
+| `src/game_logic/deathmatch_spawn_points.cpp` | Elige los puntos de aparición: solo zonas del nivel alcanzables desde el inicio |
 | `src/game_logic_common/deathmatch_options.hpp` | Opciones del modo |
 | `src/game_logic/game_world.cpp` | Ramas de deathmatch en el renderizado y los eventos |
 | `src/frontend/input_handler.cpp` | Controles por jugador (teclado y mando) |

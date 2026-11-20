@@ -30,6 +30,7 @@
 #include <engine/visual_components.hpp>
 #include <frontend/input_handler.hpp>
 #include <game_logic/camera.hpp>
+#include <game_logic/deathmatch_spawn_points.hpp>
 #include <game_logic/player.hpp>
 #include <game_logic/player/components.hpp>
 
@@ -327,5 +328,80 @@ TEST_CASE("Camera keeps player visible in short split-screen views")
 
     // Same as the original: player's bottom is 19 tiles below the camera
     CHECK(player.worldSpaceCollisionBox().bottom() - camera.position().y == 19);
+  }
+}
+
+
+TEST_CASE("Deathmatch spawn points stay inside the level")
+{
+  using game_logic::findDeathmatchSpawnPoints;
+  using game_logic::ReachabilityMap;
+
+  // Tile 1 is a solid wall
+  data::map::Map map{60, 30, data::map::TileAttributeDict{{0x0, 0xF}}};
+
+  auto wallRect = [&](int x, int y, int width, int height) {
+    for (auto row = y; row < y + height; ++row)
+    {
+      for (auto col = x; col < x + width; ++col)
+      {
+        map.setTileAt(0, col, row, 1);
+      }
+    }
+  };
+
+  // Room A: x 1..19, floor at y 20
+  wallRect(0, 0, 21, 1); // ceiling
+  wallRect(0, 0, 1, 21); // left wall
+  wallRect(0, 20, 41, 1); // floor (shared with room B)
+  // Wall between A and B, which can be opened (e.g. a shootable wall)
+  wallRect(20, 0, 1, 20);
+  // Room B: x 21..39
+  wallRect(20, 0, 21, 1);
+  wallRect(40, 0, 1, 21);
+
+  // Outside the level: A pocket of empty space with a floor, at x 45..58
+  wallRect(44, 26, 15, 1);
+
+  const auto start = base::Vec2{3, 19};
+  const auto itemInRoomB = base::Vec2{30, 19};
+  const auto itemOutside = base::Vec2{50, 25};
+  const auto openableWall = base::Rect<int>{{20, 1}, {1, 19}};
+
+  SECTION("Positions outside of the level's walls aren't reachable")
+  {
+    const auto reachability = ReachabilityMap{map, start, {openableWall}};
+
+    CHECK(reachability.isReachable(start));
+    CHECK(reachability.isReachable(itemInRoomB));
+    CHECK(!reachability.isReachable(itemOutside));
+  }
+
+  SECTION("Openable walls are treated as passable")
+  {
+    const auto withoutOpenable = ReachabilityMap{map, start};
+    CHECK(!withoutOpenable.isReachable(itemInRoomB));
+  }
+
+  SECTION("Spawn points only come from reachable places")
+  {
+    const auto spawnPoints = findDeathmatchSpawnPoints(
+      map, start, {itemInRoomB, itemOutside}, {openableWall});
+
+    REQUIRE(!spawnPoints.empty());
+
+    auto hasSpawnInRoomB = false;
+    for (const auto& spawn : spawnPoints)
+    {
+      CHECK(spawn.x < 40); // never in the outside pocket
+      CHECK(game_logic::isValidSpawnSpot(map, spawn));
+
+      if (spawn.x > 20)
+      {
+        hasSpawnInRoomB = true;
+      }
+    }
+
+    CHECK(hasSpawnInRoomB);
   }
 }

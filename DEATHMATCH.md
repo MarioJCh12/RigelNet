@@ -250,10 +250,11 @@ Windows en los servidores de GitHub.
 
 1. Crea un repositorio en tu cuenta de GitHub y sube este código (o súbelo a
    tu fork de RigelEngine, en la rama `deathmatch`).
-2. En GitHub, abre la pestaña **Actions** y elige **Windows deathmatch
-   build** → **Run workflow**.
+2. En GitHub, abre la pestaña **Actions**. En los forks, GitHub las trae
+   desactivadas: pulsa el botón verde para activarlas. Luego elige
+   **Windows build (RigelNet)** → **Run workflow**.
 3. Cuando termine (unos 10–20 minutos), descarga el artefacto
-   **RigelEngine-deathmatch-windows** al final de la página del workflow. Trae
+   **RigelNet-windows** al final de la página del workflow. Trae
    el `.exe`, las DLL y esta guía.
 
 Este workflow no se ha ejecutado todavía. Si falla, el registro de GitHub

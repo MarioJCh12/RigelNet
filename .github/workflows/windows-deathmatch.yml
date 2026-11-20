@@ -1,9 +1,9 @@
-name: Windows deathmatch build
+name: Windows build (RigelNet)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ deathmatch ]
+    branches: [ master, deathmatch ]
 
 jobs:
   build_windows:
@@ -19,8 +19,9 @@ jobs:
     - name: Run CMake
       run: >
         cmake -B build -A x64
-        -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-        -DVCPKG_TARGET_TRIPLET=x64-windows
+        "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        "-DVCPKG_TARGET_TRIPLET=x64-windows"
+        "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 
     - name: Build
       run: cmake --build build --config Release --target RigelEngine --parallel
@@ -30,10 +31,11 @@ jobs:
         New-Item -ItemType Directory -Force -Path package | Out-Null
         Copy-Item build/src/Release/*.exe package/
         Copy-Item build/src/Release/*.dll package/
+        Copy-Item README.md package/
         Copy-Item DEATHMATCH.md package/
         Copy-Item LICENSE.md package/
 
     - uses: actions/upload-artifact@v4
       with:
-        name: RigelEngine-deathmatch-windows
+        name: RigelNet-windows
         path: package

@@ -403,6 +403,7 @@ entityx::Entity EntityFactory::createEntityForLevelActor(
     actor.mID != ActorID::META_Dynamic_geometry_marker_2);
 
   auto entity = mpEntityManager->create();
+  entity.assign<components::LevelActor>(actor.mID);
 
   auto position = actor.mPosition;
   if (actor.mAssignedArea)

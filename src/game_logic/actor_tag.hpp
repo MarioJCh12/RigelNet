@@ -17,6 +17,7 @@
 #pragma once
 
 #include "base/warnings.hpp"
+#include "data/actor_ids.hpp"
 
 RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
@@ -89,5 +90,21 @@ inline entityx::Entity findFirstMatchInSpawnOrder(
 
   return candidate;
 }
+
+/** Remembers which actor from the level file an entity was created from.
+ *
+ * Only present on entities created at level start (and re-created level
+ * items in deathmatch), not on things spawned during gameplay like
+ * projectiles or effects.
+ */
+struct LevelActor
+{
+  explicit LevelActor(const data::ActorID id)
+    : mId(id)
+  {
+  }
+
+  data::ActorID mId;
+};
 
 } // namespace rigel::game_logic::components

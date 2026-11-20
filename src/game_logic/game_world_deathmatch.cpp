@@ -136,6 +136,70 @@ const char* shortWeaponName(const data::WeaponType type)
 }
 
 
+/** Actors that attack or chase the player.
+ *
+ * Their behavior is written for a single player, so in deathmatch they
+ * would only ever go after player 1. Hazards that hurt anyone who touches
+ * them (fire, spikes, the smash hammer etc.) are not on this list.
+ */
+bool isEnemyActor(const data::ActorID id)
+{
+  using ID = data::ActorID;
+
+  switch (id)
+  {
+    case ID::Hoverbot:
+    case ID::Big_green_cat_LEFT:
+    case ID::Big_green_cat_RIGHT:
+    case ID::Watchbot:
+    case ID::Watchbot_container_carrier:
+    case ID::Rocket_launcher_turret:
+    case ID::Enemy_rocket_left:
+    case ID::Enemy_rocket_up:
+    case ID::Enemy_rocket_right:
+    case ID::Enemy_rocket_2_up:
+    case ID::Enemy_rocket_2_down:
+    case ID::Enemy_laser_shot_RIGHT:
+    case ID::Bomb_dropping_spaceship:
+    case ID::Green_slime_blob:
+    case ID::Green_slime_container:
+    case ID::Snake:
+    case ID::Green_hanging_suction_plant:
+    case ID::Wall_walker:
+    case ID::Eyeball_thrower_LEFT:
+    case ID::Sentry_robot_generator:
+    case ID::Skeleton:
+    case ID::Metal_grabber_claw:
+    case ID::Hovering_laser_turret:
+    case ID::Spider:
+    case ID::Windblown_spider_generator:
+    case ID::Ugly_green_bird:
+    case ID::Spiked_green_creature_LEFT:
+    case ID::Spiked_green_creature_RIGHT:
+    case ID::Small_flying_ship_1:
+    case ID::Small_flying_ship_2:
+    case ID::Small_flying_ship_3:
+    case ID::Blue_guard_RIGHT:
+    case ID::Blue_guard_LEFT:
+    case ID::Blue_guard_using_a_terminal:
+    case ID::Laser_turret:
+    case ID::BOSS_Episode_1:
+    case ID::BOSS_Episode_2:
+    case ID::BOSS_Episode_3:
+    case ID::BOSS_Episode_4:
+    case ID::BOSS_Episode_4_projectile:
+    case ID::Red_bird:
+    case ID::Unicycle_bot:
+    case ID::Aggressive_prisoner:
+    case ID::Rigelatin_soldier:
+      return true;
+
+    default:
+      return false;
+  }
+}
+
+
 int distanceSquared(const base::Vec2& a, const base::Vec2& b)
 {
   const auto d = a - b;
@@ -212,13 +276,18 @@ void GameWorld::enableDeathmatch(const DeathmatchOptions& options)
   mpQuickSave.reset();
   state.mActivatedCheckpoint.reset();
 
-  // Remove enemies. Everything that shows up on the radar counts as enemy.
+  // Remove enemies. Hazards (fire, spikes etc.) stay, as they affect all
+  // players equally.
   if (!dm.mOptions.mKeepEnemies)
   {
     std::vector<entityx::Entity> toRemove;
-    state.mEntities.each<components::AppearsOnRadar>(
-      [&](entityx::Entity entity, const components::AppearsOnRadar&)
-      { toRemove.push_back(entity); });
+    state.mEntities.each<components::LevelActor>(
+      [&](entityx::Entity entity, const components::LevelActor& actor) {
+        if (isEnemyActor(actor.mId))
+        {
+          toRemove.push_back(entity);
+        }
+      });
 
     for (auto entity : toRemove)
     {

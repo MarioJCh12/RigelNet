@@ -263,7 +263,7 @@ std::vector<base::Vec2> findDeathmatchSpawnPoints(
 
   if (result.size() < MIN_SPAWN_POINTS_FROM_ITEMS)
   {
-    for (auto y = 0; y < map.height(); y += 3)
+    for (auto y = 0; y < map.height(); ++y)
     {
       for (auto x = 0; x < map.width(); x += 5)
       {

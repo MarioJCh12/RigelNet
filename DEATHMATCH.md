@@ -104,6 +104,37 @@ falta `NUKEM2.CMP` (imprescindible: mapas, gráficos y sonido) y `NUKEM2.F1` a
 guardadas y récords del juego original: RigelEngine los importa si están, pero
 son opcionales.
 
+## Mapa de prueba: la arena
+
+`tools/deathmatch_arena/make_arena.py` genera una arena pensada para
+deathmatch:
+
+- Una sala de 64×40 tiles con suelo, 4 alturas de plataformas, armas
+  (láser, lanzallamas, lanzacohetes y disparo rápido) y salud.
+- El jugador 1 empieza a la izquierda.
+- Usa los gráficos de L1, que están también en la versión shareware.
+- Está comprobado con la física real de Duke: se puede llegar saltando a
+  todas las plataformas.
+
+Para generarla e instalarla, con Python 3:
+
+```
+python tools\deathmatch_arena\make_arena.py E:\Juegos\DUKE2\M1.MNI
+```
+
+Para jugarla: `--deathmatch -l M1 "E:\Juegos\DUKE2"`
+
+Se guarda como `M1.MNI` a propósito. La versión shareware no tiene mapa
+`M1`, así que la arena aparece como un mapa extra y no reemplaza ningún
+mapa original. Con la versión completa del juego, dale otro nombre (por
+ejemplo `O8.MNI`) para no tapar un mapa existente. RigelEngine usa siempre
+un archivo `.MNI` suelto en la carpeta del juego antes que el que va dentro
+de `NUKEM2.CMP`.
+
+Para cambiar la arena, edita las listas `PLATFORMS` y `ACTORS` del script
+y vuelve a generarla. Duke salta como máximo 7 tiles de alto, así que deja
+como mucho 6 filas entre plataformas.
+
 ## Compilar en Windows
 
 ### Opción A: Visual Studio en tu PC
@@ -176,8 +207,10 @@ indica en qué paso; pásame ese error.
   la nave espacial, el campo de fuerza especial que mata al tocarlo y la
   salida del nivel (la salida, de todos modos, está desactivada en
   deathmatch).
-- **Algunos enemigos pueden quedar.** Se quitan los que aparecen en el radar,
-  que son casi todos. Si queda alguno, solo persigue y ataca al jugador 1.
+- **Enemigos con `--keep-enemies`.** Si los conservas, solo persiguen y
+  atacan al jugador 1. Sin esa opción se quitan todos los de una lista fija.
+  Los peligros del escenario (fuego, pinchos, martillo, etc.) se quedan y
+  dañan a todos.
 - **Recoger un dispositivo de camuflaje** (cloak) o de disparo rápido reinicia
   el temporizador de ese objeto para todos los jugadores que ya lo tengan.
 - **Al disparar se bloquea un momento la opción de mirar arriba o abajo**
@@ -207,6 +240,7 @@ indica en qué paso; pásame ese error.
 | `src/engine/entity_activation_system.cpp`, `src/engine/life_time_system.cpp` | Soporte para varias vistas simultáneas |
 | `src/engine/sprite_rendering_system.cpp` | Teñido de sprites (colores de jugador) |
 | `test/test_multiplayer.cpp` | Tests de lo anterior |
+| `tools/deathmatch_arena/make_arena.py` | Generador de la arena de prueba |
 
 El modo de un jugador funciona exactamente igual que antes. Todas las
 ramificaciones nuevas solo se activan con `--deathmatch`.

@@ -95,6 +95,47 @@ std::vector<NetSprite> interpolateSprites(
 }
 
 
+void CorrectionSmoothing::addCorrection(const base::Vec2& movedBy)
+{
+  // Keep drawing the player where it was: The offset points back there
+  mOffset.x -= float(movedBy.x) * 8.0f;
+  mOffset.y -= float(movedBy.y) * 8.0f;
+  mPreviousOffset.x -= float(movedBy.x) * 8.0f;
+  mPreviousOffset.y -= float(movedBy.y) * 8.0f;
+
+  if (
+    std::abs(mOffset.x) > MAX_OFFSET || std::abs(mOffset.y) > MAX_OFFSET)
+  {
+    reset();
+  }
+}
+
+
+void CorrectionSmoothing::advance()
+{
+  mPreviousOffset = mOffset;
+  mOffset.x *= DECAY;
+  mOffset.y *= DECAY;
+
+  if (std::abs(mOffset.x) < 0.5f && std::abs(mOffset.y) < 0.5f)
+  {
+    mOffset = {};
+  }
+}
+
+
+base::Vec2 CorrectionSmoothing::offset(const float subFrame, const bool smooth)
+  const
+{
+  const auto factor = smooth ? std::clamp(subFrame, 0.0f, 1.0f) : 1.0f;
+  return base::Vec2{
+    int(std::lround(
+      mPreviousOffset.x + (mOffset.x - mPreviousOffset.x) * factor)),
+    int(std::lround(
+      mPreviousOffset.y + (mOffset.y - mPreviousOffset.y) * factor))};
+}
+
+
 void SnapshotInterpolator::addSnapshot(const NetSnapshot& snapshot)
 {
   if (!mBuffer.empty() && snapshot.mFrame <= mBuffer.back().mFrame)

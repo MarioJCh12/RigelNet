@@ -45,6 +45,9 @@ struct RemoteViewState
   // smooth movement. Our own player is drawn from the local simulation
   // (prediction) and merged in when rendering.
   SnapshotInterpolator mInterpolator;
+
+  // Makes corrections of our own player slide instead of jump
+  CorrectionSmoothing mCorrectionSmoothing;
   int mFramesSinceStatsLog = 0;
 
   /** True while our own player is alive and simulated locally */

@@ -509,6 +509,7 @@ void GameWorld::updateRemoteView(const PlayerInput& input)
   }
 
   remoteView.mInterpolator.advance();
+  remoteView.mCorrectionSmoothing.advance();
 
   // Every 5 seconds, log how smooth the connection is
   if (++remoteView.mFramesSinceStatsLog >= 75)
@@ -556,6 +557,11 @@ void GameWorld::updateRemoteView(const PlayerInput& input)
   // left in our world at this point, so this doesn't affect anything else.
   engine::updateAnimatedSprites(state.mEntities);
 
+  // For motion smoothing: Our player moves from where it is now. Any
+  // correction since the last frame isn't interpolated, it's covered by
+  // mCorrectionSmoothing instead.
+  updateMotionSmoothingStates();
+
   state.mPlayer.update(input);
 
   // Shooting creates projectiles and effects in our world, but the real
@@ -599,6 +605,13 @@ base::Vec2 GameWorld::updateRemoteSprites(const float interpolationFactor)
       state.mCamera.position(),
       interpolationFactor);
     localSprites = state.mSpriteRenderingSystem.sprites();
+
+    const auto smoothingOffset = remoteView.mCorrectionSmoothing.offset(
+      interpolationFactor, mpOptions->mMotionSmoothing);
+    for (auto& sprite : localSprites)
+    {
+      sprite.mDestRect.topLeft += smoothingOffset;
+    }
   }
 
   // Everything except our own player is shown slightly in the past, moving
@@ -726,6 +739,7 @@ base::Vec2 GameWorld::correctPrediction(const base::Vec2& offset)
     stepTowards(offset.x, base::Vec2{offset.x < 0 ? -1 : 1, 0});
   }
 
+  mpRemoteView->mCorrectionSmoothing.addCorrection(position - start);
   return position - start;
 }
 
@@ -792,6 +806,8 @@ void GameWorld::applySnapshot(const NetSnapshot& snapshot)
     // Following the host's position until all inputs we simulated
     // differently have been applied there. After that, both games are in
     // the same state, and we can simulate our player again.
+    remoteView.mCorrectionSmoothing.addCorrection(
+      snapshot.mPlayerPosition - player.position());
     player.position() = snapshot.mPlayerPosition;
     if (snapshot.mLastInputSequence >= *remoteView.mResyncUntilSequence)
     {
@@ -807,6 +823,7 @@ void GameWorld::applySnapshot(const NetSnapshot& snapshot)
   {
     // First snapshot, or respawned: Start simulating from the host's state
     player.reSpawnAt(snapshot.mPlayerPosition);
+    remoteView.mCorrectionSmoothing.reset();
     correctWeapon(snapshot.mWeapon, snapshot.mAmmo);
     setPlayerSpriteVisible(player, true);
     remoteView.mIsPredicting = true;

@@ -285,3 +285,59 @@ TEST_CASE("Lag compensation")
     CHECK(!history.at(7));
   }
 }
+
+
+TEST_CASE("Prediction corrections slide instead of jumping")
+{
+  CorrectionSmoothing smoothing;
+
+  SECTION("Player is first drawn where it was, then slides into place")
+  {
+    // Player was moved 2 tiles to the right
+    smoothing.addCorrection({2, 0});
+    CHECK(smoothing.offset(0.0f, false) == base::Vec2{-16, 0});
+
+    auto previous = 16;
+    for (auto frame = 0; frame < 10; ++frame)
+    {
+      smoothing.advance();
+      const auto distance = -smoothing.offset(0.0f, false).x;
+      CHECK(distance <= previous);
+      previous = distance;
+    }
+
+    CHECK(smoothing.offset(0.0f, false) == base::Vec2{});
+  }
+
+  SECTION("Gone within a few frames")
+  {
+    smoothing.addCorrection({0, -3});
+    for (auto frame = 0; frame < 6; ++frame)
+    {
+      smoothing.advance();
+    }
+    CHECK(smoothing.offset(0.0f, false) == base::Vec2{});
+  }
+
+  SECTION("With motion smoothing, also slides between frames")
+  {
+    smoothing.addCorrection({1, 0});
+    smoothing.advance();
+    CHECK(smoothing.offset(0.0f, true) == base::Vec2{-8, 0});
+    CHECK(smoothing.offset(0.5f, true) == base::Vec2{-6, 0});
+    CHECK(smoothing.offset(1.0f, true) == base::Vec2{-4, 0});
+  }
+
+  SECTION("Corrections add up")
+  {
+    smoothing.addCorrection({1, 0});
+    smoothing.addCorrection({1, 1});
+    CHECK(smoothing.offset(0.0f, false) == base::Vec2{-16, -8});
+  }
+
+  SECTION("Very big corrections just jump")
+  {
+    smoothing.addCorrection({20, 0});
+    CHECK(smoothing.offset(0.0f, false) == base::Vec2{});
+  }
+}

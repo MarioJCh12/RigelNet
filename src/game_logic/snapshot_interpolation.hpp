@@ -122,6 +122,42 @@ private:
 };
 
 
+/** Hides sudden jumps of a network client's own player.
+ *
+ * When the host's game differs from the client's prediction, the player is
+ * moved to the right position at once, since the game logic needs it there.
+ * Drawing it there right away looks like a teleport, though. Instead, the
+ * player is drawn with an offset back towards where it was, which shrinks
+ * quickly, so it slides into place over a few frames.
+ */
+class CorrectionSmoothing
+{
+public:
+  /** Offsets larger than this (in pixels) aren't smoothed, the player just
+   * jumps. Sliding across half the screen would look odd too. */
+  static constexpr auto MAX_OFFSET = 96.0f;
+
+  /** How much of the offset is left after each game logic frame */
+  static constexpr auto DECAY = 0.5f;
+
+  /** The player was moved by this many tiles */
+  void addCorrection(const base::Vec2& movedBy);
+
+  /** Call once per game logic frame */
+  void advance();
+
+  /** Offset to draw the player with, in pixels. See
+   * SnapshotInterpolator::sample() for the parameters. */
+  base::Vec2 offset(float subFrame, bool smooth) const;
+
+  void reset() { *this = CorrectionSmoothing{}; }
+
+private:
+  base::Vec2f mOffset;
+  base::Vec2f mPreviousOffset;
+};
+
+
 /** Positions of the sprites in from, moved towards matching sprites in to.
  * Sprites moving further than maxDistance pixels stay in place. */
 std::vector<NetSprite> interpolateSprites(

@@ -199,10 +199,9 @@ public:
   virtual std::optional<PredictedPlayerState> predictedPlayerState() const = 0;
 
   /** Move the predicted player, to fix a difference to the host's game.
-   * If that would put it inside a wall, it's moved to hostPosition instead,
-   * which is where the host says it was a little while ago. */
-  virtual void
-    correctPrediction(const base::Vec2& offset, const base::Vec2& hostPosition) = 0;
+   * Doesn't move it into walls, so the result can be less than asked for.
+   * Returns how far the player was actually moved. */
+  virtual base::Vec2 correctPrediction(const base::Vec2& offset) = 0;
 
   /** Fix the predicted player's weapon and ammo */
   virtual void correctWeapon(int weapon, int ammo) = 0;

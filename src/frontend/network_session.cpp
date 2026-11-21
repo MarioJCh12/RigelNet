@@ -565,10 +565,14 @@ private:
         snapshot.mLastInputSequence,
         mNumCorrections);
 
-      mpWorld->correctPrediction(error, snapshot.mPlayerPosition);
+      // Our later predictions started from the uncorrected position. Shift
+      // them by however far the player actually moved, so they keep
+      // matching our player. Any difference that's left shows up in the
+      // next snapshot, and gets corrected then.
+      const auto applied = mpWorld->correctPrediction(error);
       for (auto& prediction : mPredictions)
       {
-        prediction.mPosition += error;
+        prediction.mPosition += applied;
       }
     }
 

@@ -66,6 +66,11 @@ bool isPlayerPositionFree(
   const base::Vec2& position);
 
 
+/** True if the given area (in tiles) doesn't overlap any walls. One-way
+ * platforms don't count as walls. */
+bool isAreaFree(const data::map::Map& map, const base::Rect<int>& area);
+
+
 /** True if the player fits at the given position and stands on ground */
 bool isValidSpawnSpot(const data::map::Map& map, const base::Vec2& position);
 

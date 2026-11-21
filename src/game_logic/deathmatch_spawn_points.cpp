@@ -179,6 +179,28 @@ ReachabilityMap::ReachabilityMap(
 }
 
 
+bool isAreaFree(const data::map::Map& map, const base::Rect<int>& area)
+{
+  if (!isInsideMap(map, area))
+  {
+    return false;
+  }
+
+  for (auto y = area.top(); y <= area.bottom(); ++y)
+  {
+    for (auto x = area.left(); x <= area.right(); ++x)
+    {
+      if (isBlocking(map, x, y))
+      {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+
 bool isPlayerPositionFree(const data::map::Map& map, const base::Vec2& position)
 {
   return isPassable(map, {}, position);

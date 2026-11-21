@@ -671,33 +671,49 @@ std::uint32_t GameWorld::viewedFrame() const
 }
 
 
-void GameWorld::correctPrediction(
-  const base::Vec2& offset,
-  const base::Vec2& hostPosition)
+base::Vec2 GameWorld::correctPrediction(const base::Vec2& offset)
 {
   if (!mpRemoteView || !mpRemoteView->mIsPredicting)
   {
-    return;
+    return {};
   }
 
   auto& position = mpState->mPlayer.position();
-  const auto corrected = position + offset;
+  const auto box = mpState->mPlayer.collisionBox();
+  const auto isFree = [&](const base::Vec2& candidate) {
+    return isAreaFree(mpState->mMap, engine::toWorldSpace(box, candidate));
+  };
 
   // Shifting by the difference keeps the movement we simulated since then.
   // But if the difference is big, that movement happened somewhere else,
-  // and the result could be inside a wall. The host's position is always
-  // valid, even if a little outdated.
-  if (isPlayerPositionFree(mpState->mMap, corrected))
+  // and the result could be inside a wall (e.g. we kept flying while the
+  // host had us fall and land). Then we move as far as walls allow. The
+  // rest of the difference shows up again in the next snapshot, and gets
+  // corrected then.
+  const auto start = position;
+  if (isFree(start + offset))
   {
-    position = corrected;
+    position = start + offset;
   }
   else
   {
-    LOG_F(
-      INFO,
-      "Corrected prediction would be inside a wall, using host's position");
-    position = hostPosition;
+    auto stepTowards = [&](const int amount, const base::Vec2& step) {
+      for (auto i = 0; i < std::abs(amount); ++i)
+      {
+        if (!isFree(position + step))
+        {
+          break;
+        }
+
+        position += step;
+      }
+    };
+
+    stepTowards(offset.y, base::Vec2{0, offset.y < 0 ? -1 : 1});
+    stepTowards(offset.x, base::Vec2{offset.x < 0 ? -1 : 1, 0});
   }
+
+  return position - start;
 }
 
 

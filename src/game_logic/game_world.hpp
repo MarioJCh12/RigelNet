@@ -124,9 +124,7 @@ public:
     override;
   std::optional<base::Vec2> predictedPlayerPosition() const override;
   std::optional<PredictedPlayerState> predictedPlayerState() const override;
-  void correctPrediction(
-    const base::Vec2& offset,
-    const base::Vec2& hostPosition) override;
+  base::Vec2 correctPrediction(const base::Vec2& offset) override;
   void correctWeapon(int weapon, int ammo) override;
   std::uint32_t viewedFrame() const override;
   void render(float interpolationFactor = 0.0f) override;

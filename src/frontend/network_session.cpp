@@ -23,6 +23,7 @@
 #include <loguru.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <deque>
 #include <map>
 #include <optional>
@@ -517,6 +518,12 @@ private:
   // Ten seconds' worth. Older predictions can't be matched anymore.
   static constexpr auto MAX_PREDICTIONS = 150u;
 
+  // Differences bigger than this (in tiles) aren't corrected by moving the
+  // player, see reconcilePrediction(). Same for corrections that a wall
+  // stops this far short.
+  static constexpr auto MAX_CORRECTION = 5;
+  static constexpr auto MAX_BLOCKED_CORRECTION = 2;
+
   // After losing the connection, show the message for 3 seconds, then go
   // back to the main menu
   static constexpr auto LEAVE_GAME_DELAY = 45;
@@ -565,11 +572,37 @@ private:
         snapshot.mLastInputSequence,
         mNumCorrections);
 
+      // A big difference means the two games went different ways, e.g. the
+      // host teleported us, or had us land on a platform that we flew past.
+      // Then our player is likely also in a different state (falling vs.
+      // walking etc.). Small corrections can't fix that, and neither can
+      // moving through walls. Instead, we let our player follow the host's
+      // position until the host has applied all the inputs we already sent
+      // (which we simulated in the wrong place), then start predicting
+      // again from the same state as the host.
+      const auto isBigDifference =
+        std::max(std::abs(error.x), std::abs(error.y)) >= MAX_CORRECTION;
+      const auto applied =
+        isBigDifference ? base::Vec2{} : mpWorld->correctPrediction(error);
+      const auto blocked = error - applied;
+      if (
+        isBigDifference ||
+        std::abs(blocked.x) + std::abs(blocked.y) >= MAX_BLOCKED_CORRECTION)
+      {
+        LOG_F(
+          INFO,
+          "Prediction off by %d,%d (%s), resynchronizing",
+          error.x,
+          error.y,
+          isBigDifference ? "too far" : "blocked by a wall");
+        mpWorld->beginResync(mNextSequence - 1);
+        mPredictions.clear();
+        return;
+      }
+
       // Our later predictions started from the uncorrected position. Shift
       // them by however far the player actually moved, so they keep
-      // matching our player. Any difference that's left shows up in the
-      // next snapshot, and gets corrected then.
-      const auto applied = mpWorld->correctPrediction(error);
+      // matching our player.
       for (auto& prediction : mPredictions)
       {
         prediction.mPosition += applied;

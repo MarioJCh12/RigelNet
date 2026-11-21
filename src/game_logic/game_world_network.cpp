@@ -527,6 +527,15 @@ void GameWorld::updateRemoteView(const PlayerInput& input)
       remoteView.mInterpolator.delay());
   }
 
+  if (remoteView.mResyncUntilSequence)
+  {
+    // Our player follows the host's position for a moment, see
+    // applySnapshot(). Keep the camera on it.
+    state.mPreviousCameraPosition = state.mCamera.position();
+    state.mCamera.update(PlayerInput{}, remoteViewportSize());
+    return;
+  }
+
   if (!remoteView.mIsPredicting)
   {
     return;
@@ -576,8 +585,13 @@ base::Vec2 GameWorld::updateRemoteSprites(const float interpolationFactor)
   auto& state = *mpState;
   auto& remoteView = *mpRemoteView;
 
+  // Our own player is drawn by us while we simulate it, and also while it
+  // briefly follows the host's position (resync)
+  const auto drawsOwnPlayer =
+    remoteView.mIsPredicting || remoteView.mResyncUntilSequence.has_value();
+
   std::vector<engine::SpriteDrawSpec> localSprites;
-  if (remoteView.mIsPredicting)
+  if (drawsOwnPlayer)
   {
     state.mSpriteRenderingSystem.update(
       state.mEntities,
@@ -596,7 +610,7 @@ base::Vec2 GameWorld::updateRemoteSprites(const float interpolationFactor)
   // The host sends world positions. Draw them relative to our camera, which
   // may be ahead of the host's camera due to prediction. This keeps static
   // things like items exactly in place while our view moves.
-  const auto cameraPosition = remoteView.mIsPredicting
+  const auto cameraPosition = drawsOwnPlayer
     ? state.mCamera.position()
     : (remoteView.mInterpolator.hasData() ? hostFrame.mCameraPosition
                                           : remoteView.mSnapshot.mCameraPosition);
@@ -687,9 +701,8 @@ base::Vec2 GameWorld::correctPrediction(const base::Vec2& offset)
   // Shifting by the difference keeps the movement we simulated since then.
   // But if the difference is big, that movement happened somewhere else,
   // and the result could be inside a wall (e.g. we kept flying while the
-  // host had us fall and land). Then we move as far as walls allow. The
-  // rest of the difference shows up again in the next snapshot, and gets
-  // corrected then.
+  // host had us fall and land). Then we move as far as walls allow, and
+  // the caller decides what to do about the rest.
   const auto start = position;
   if (isFree(start + offset))
   {
@@ -714,6 +727,19 @@ base::Vec2 GameWorld::correctPrediction(const base::Vec2& offset)
   }
 
   return position - start;
+}
+
+
+void GameWorld::beginResync(const std::uint32_t untilSequence)
+{
+  if (!mpRemoteView || !mpRemoteView->mIsPredicting)
+  {
+    return;
+  }
+
+  LOG_F(INFO, "Following the host's position until input %u", untilSequence);
+  mpRemoteView->mIsPredicting = false;
+  mpRemoteView->mResyncUntilSequence = untilSequence;
 }
 
 
@@ -753,11 +779,28 @@ void GameWorld::applySnapshot(const NetSnapshot& snapshot)
   auto& player = state.mPlayer;
   if (snapshot.mIsDead)
   {
-    if (remoteView.mIsPredicting)
+    if (remoteView.mIsPredicting || remoteView.mResyncUntilSequence)
     {
       // The host now shows our death animation
       remoteView.mIsPredicting = false;
+      remoteView.mResyncUntilSequence.reset();
       setPlayerSpriteVisible(player, false);
+    }
+  }
+  else if (remoteView.mResyncUntilSequence)
+  {
+    // Following the host's position until all inputs we simulated
+    // differently have been applied there. After that, both games are in
+    // the same state, and we can simulate our player again.
+    player.position() = snapshot.mPlayerPosition;
+    if (snapshot.mLastInputSequence >= *remoteView.mResyncUntilSequence)
+    {
+      LOG_F(INFO, "In sync with the host again");
+      remoteView.mResyncUntilSequence.reset();
+      player.resetMovementState();
+      remoteView.mIsPredicting = true;
+      remoteView.mLastHealth = snapshot.mHealth;
+      correctWeapon(snapshot.mWeapon, snapshot.mAmmo);
     }
   }
   else if (!remoteView.mIsPredicting)

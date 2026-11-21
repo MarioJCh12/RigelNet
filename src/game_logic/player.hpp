@@ -284,6 +284,11 @@ public:
 
   void reSpawnAt(const base::Vec2& spawnPosition);
 
+  /** Forget about any movement in progress (jumping, climbing etc.), and
+   * continue by standing or falling, depending on what's below. Used by
+   * network clients to start predicting again after following the host. */
+  void resetMovementState();
+
   bool isInRegularState() const;
 
   bool isInMercyFrames() const;

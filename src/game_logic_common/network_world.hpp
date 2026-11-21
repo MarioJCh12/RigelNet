@@ -203,6 +203,14 @@ public:
    * Returns how far the player was actually moved. */
   virtual base::Vec2 correctPrediction(const base::Vec2& offset) = 0;
 
+  /** Stop simulating our player for a moment, and show it where the host
+   * says it is instead. For when the difference is too big to fix by moving
+   * it (see correctPrediction). Prediction starts again once a snapshot
+   * includes the input with the given sequence number. Until then, the
+   * host only gets neutral input, so that both games end up in the same
+   * state. */
+  virtual void beginResync(std::uint32_t untilSequence) = 0;
+
   /** Fix the predicted player's weapon and ammo */
   virtual void correctWeapon(int weapon, int ammo) = 0;
 

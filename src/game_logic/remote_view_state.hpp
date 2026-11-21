@@ -26,7 +26,9 @@ RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
 RIGEL_RESTORE_WARNINGS
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 
@@ -47,6 +49,10 @@ struct RemoteViewState
 
   /** True while our own player is alive and simulated locally */
   bool mIsPredicting = false;
+
+  /** Set while our player follows the host's position instead of being
+   * simulated, after a big difference. See INetworkWorld::beginResync. */
+  std::optional<std::uint32_t> mResyncUntilSequence;
   int mLastHealth = 0;
 
   std::unique_ptr<IGameServiceProvider> mpMutedServiceProvider;

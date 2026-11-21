@@ -822,6 +822,21 @@ void Player::reSpawnAt(const base::Vec2& spawnPosition)
 }
 
 
+void Player::resetMovementState()
+{
+  if (isDead() || isIncapacitated())
+  {
+    return;
+  }
+
+  mStance = WeaponStance::Regular;
+  mJumpRequested = false;
+  mRapidFiredLastFrame = false;
+  mAttachedSpiders.reset();
+  startFalling();
+}
+
+
 void Player::updateTemporaryItemExpiration()
 {
   using data::InventoryItemType;

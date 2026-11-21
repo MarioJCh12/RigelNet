@@ -22,6 +22,7 @@
 
 #include <loguru.hpp>
 
+#include <algorithm>
 #include <deque>
 #include <map>
 #include <optional>
@@ -104,34 +105,65 @@ public:
 
   void fillRemoteInputs(std::vector<PlayerInput>&) override
   {
-    // Each network player gets exactly one of their inputs per frame, in
-    // the order the client produced them. This keeps our simulation of
-    // their player in step with the client's own (prediction). If no input
-    // has arrived yet, their player waits for it.
+    // Each network player gets their inputs one at a time, in the order the
+    // client produced them. This keeps our simulation of their player in
+    // step with the client's own (prediction). If no input has arrived yet,
+    // their player waits for it.
     for (auto& [id, client] : mClients)
     {
-      if (!client.mPlayerIndex || client.mInputQueue.empty())
+      if (!client.mPlayerIndex)
       {
         continue;
       }
 
-      auto message = client.mInputQueue.front();
-      client.mInputQueue.pop_front();
-
-      // If the client is far ahead (e.g. after a lag spike), catch up by
-      // combining inputs. The client will correct its prediction.
-      while (client.mInputQueue.size() > MAX_QUEUED_INPUTS)
+      // Inputs arrive irregularly, so a few pile up now and then. Without
+      // that buffer, the player would sometimes have to wait. But a buffer
+      // that's bigger than needed delays everything this player does. If
+      // there was always at least one spare input for a while, we take two
+      // this frame to make the buffer smaller.
+      client.mQueueSizeHistory.push_back(client.mInputQueue.size());
+      if (client.mQueueSizeHistory.size() > QUEUE_HISTORY_SIZE)
       {
-        auto next = client.mInputQueue.front();
-        client.mInputQueue.pop_front();
-        next.mInput = network::mergeInputs(message.mInput, next.mInput);
-        message = next;
+        client.mQueueSizeHistory.pop_front();
       }
 
-      mpWorld->setRemotePlayerFrame(
-        *client.mPlayerIndex,
-        game_logic::RemotePlayerFrame{
-          message.mInput, message.mSequence, message.mPredictedPosition});
+      auto numToApply = std::min<std::size_t>(1, client.mInputQueue.size());
+      if (
+        client.mQueueSizeHistory.size() == QUEUE_HISTORY_SIZE &&
+        *std::min_element(
+          client.mQueueSizeHistory.begin(), client.mQueueSizeHistory.end()) >=
+          2)
+      {
+        numToApply = 2;
+        for (auto& size : client.mQueueSizeHistory)
+        {
+          --size;
+        }
+      }
+
+      for (auto i = 0u; i < numToApply; ++i)
+      {
+        auto message = client.mInputQueue.front();
+        client.mInputQueue.pop_front();
+
+        // If the client is far ahead (e.g. after a long lag spike), catch
+        // up by combining inputs. The client will correct its prediction.
+        while (client.mInputQueue.size() > MAX_QUEUED_INPUTS)
+        {
+          auto next = client.mInputQueue.front();
+          client.mInputQueue.pop_front();
+          next.mInput = network::mergeInputs(message.mInput, next.mInput);
+          message = next;
+        }
+
+        mpWorld->setRemotePlayerFrame(
+          *client.mPlayerIndex,
+          game_logic::RemotePlayerFrame{
+            message.mInput,
+            message.mSequence,
+            message.mPredictedPosition,
+            message.mViewedFrame});
+      }
     }
   }
 
@@ -217,10 +249,14 @@ private:
   // running ahead of us.
   static constexpr auto MAX_QUEUED_INPUTS = 8u;
 
+  // Two seconds' worth of frames
+  static constexpr auto QUEUE_HISTORY_SIZE = 30u;
+
   struct Client
   {
     std::optional<int> mPlayerIndex;
     std::deque<network::InputMessage> mInputQueue;
+    std::deque<std::size_t> mQueueSizeHistory;
   };
 
   void handleDisconnect(const ClientId id)
@@ -344,7 +380,10 @@ public:
 
   void receive() override
   {
-    std::optional<game_logic::NetSnapshot> latestSnapshot;
+    // All snapshots that arrived since the last frame, oldest first. Each
+    // one is needed for smooth movement (interpolation) and for checking
+    // our prediction.
+    std::vector<game_logic::NetSnapshot> newSnapshots;
 
     for (auto& event : mpClient->poll())
     {
@@ -359,12 +398,12 @@ public:
         case MessageType::Snapshot:
           if (auto snapshot = network::decodeSnapshot(event.mData))
           {
-            // Snapshots can arrive out of order or get lost, only the
-            // newest one matters
+            // Snapshots can arrive out of order or get lost. Once we have
+            // a newer one, older ones are of no use anymore.
             if (!mLastFrame || snapshot->mFrame > *mLastFrame)
             {
               mLastFrame = snapshot->mFrame;
-              latestSnapshot = std::move(*snapshot);
+              newSnapshots.push_back(std::move(*snapshot));
             }
           }
           break;
@@ -403,11 +442,11 @@ public:
       }
     }
 
-    if (latestSnapshot)
+    for (const auto& snapshot : newSnapshots)
     {
       const auto wasPredicting = mpWorld->predictedPlayerPosition().has_value();
-      mpWorld->applySnapshot(*latestSnapshot);
-      reconcilePrediction(*latestSnapshot, wasPredicting);
+      mpWorld->applySnapshot(snapshot);
+      reconcilePrediction(snapshot, wasPredicting);
     }
   }
 
@@ -419,6 +458,7 @@ public:
     message.mSequence = mNextSequence++;
     message.mViewportSize = mpWorld->remoteViewportSize();
     message.mPredictedPosition = mpWorld->predictedPlayerPosition();
+    message.mViewedFrame = mpWorld->viewedFrame();
 
     // While we're not simulating our player (not spawned yet, or dead), our
     // input isn't applied locally. So it shouldn't be applied on the host

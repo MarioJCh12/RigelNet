@@ -346,6 +346,7 @@ ByteBuffer encode(const InputMessage& message)
     writer.s16(message.mPredictedPosition->x);
     writer.s16(message.mPredictedPosition->y);
   }
+  writer.u32(message.mViewedFrame);
   return writer.take();
 }
 
@@ -374,6 +375,7 @@ std::optional<InputMessage> decodeInput(const ByteBuffer& message)
     position.y = reader.s16();
     result.mPredictedPosition = position;
   }
+  result.mViewedFrame = reader.u32();
 
   if (!reader.finishedOk())
   {
@@ -419,6 +421,7 @@ ByteBuffer encode(const NetSnapshot& snapshot)
   writer.u16(std::uint32_t(snapshot.mSprites.size()));
   for (const auto& sprite : snapshot.mSprites)
   {
+    writer.u32(sprite.mKey);
     writer.rect(sprite.mDestRect);
     writer.u16(std::uint32_t(sprite.mImageId));
     writer.u8(sprite.mFlags);
@@ -488,6 +491,7 @@ std::optional<NetSnapshot> decodeSnapshot(const ByteBuffer& message)
   for (auto i = 0u; i < numSprites && reader.ok(); ++i)
   {
     NetSprite sprite;
+    sprite.mKey = reader.u32();
     sprite.mDestRect = reader.rect();
     sprite.mImageId = int(reader.u16());
     sprite.mFlags = std::uint8_t(reader.u8());

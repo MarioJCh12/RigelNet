@@ -124,6 +124,7 @@ public:
     override;
   std::optional<base::Vec2> predictedPlayerPosition() const override;
   void correctPrediction(const base::Vec2& offset) override;
+  std::uint32_t viewedFrame() const override;
   void render(float interpolationFactor = 0.0f) override;
   void processEndOfFrameActions() override;
   void updateBackdropAutoScrolling(engine::TimeDelta dt) override;
@@ -196,11 +197,13 @@ private:
   std::vector<base::Size> deathmatchViewportSizes() const;
   void updateRemoteView(const PlayerInput& input);
   void applyPredictedPosition(int playerIndex, const RemotePlayerFrame& frame);
-  void updateRemoteSprites(float interpolationFactor);
+  /** Returns the camera position to draw the remote view with */
+  base::Vec2 updateRemoteSprites(float interpolationFactor);
   void initNetworkHostState();
   void setDeathmatchParticipantActive(int index, bool active);
   void updateDeathmatchLogic(const std::vector<PlayerInput>& inputs);
   void updateDeathmatchRules();
+  void assignProjectileRewind();
   void applyPlayerVsPlayerDamage();
   void updateItemRespawning();
   void respawnDeathmatchPlayer(int index);

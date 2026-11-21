@@ -20,6 +20,10 @@ RigelEngine.
 - **Client-side prediction**: your own player reacts instantly, even with a
   high ping. The host stays authoritative over damage, deaths, items and
   respawns
+- **Interpolation**: other players, enemies and shots move smoothly even on
+  an irregular connection, with a delay that adapts to the connection
+- **Lag compensation**: the host judges your shots by what you saw on your
+  screen (up to 0.8 seconds back)
 - Player vs. player damage tuned for deathmatch, kill tracking, rounds with
   a frag limit
 - Items and weapons re-appear after being picked up
@@ -85,7 +89,9 @@ are assigned in the order they were connected.
 | `--item-respawn <seconds>` | Time until items re-appear | 20 |
 | `--keep-enemies` | Don't remove enemies | |
 | `-l <map>` | Map, e.g. `L1`. The host's choice is used for everyone | `L1` |
+| `--no-lag-compensation` | Host: judge hits by where players are on the host | |
 | `--simulate-lag <ms>` | Testing: add latency to a client's connection | 0 |
+| `--simulate-jitter <ms>` | Testing: make a client's latency vary randomly | 0 |
 
 ## Building
 
@@ -105,7 +111,18 @@ coordinates), changes to the map, sounds, messages and scores. Each client
 also simulates its own player locally with the same physics. The host
 applies each client's inputs in the same order, one per frame, and sends back
 where that player actually ended up, so clients can correct small
-differences. More details are in the source:
+differences.
+
+Everything else is shown slightly in the past: clients buffer a few
+snapshots and play them back at a steady pace, interpolating sprite
+positions between them. The delay adapts to how irregular the connection is.
+Since clients see others in the past, the host keeps a short history of
+each player's hit box and checks shots against where the target was on the
+shooter's screen (lag compensation, capped at 12 frames). On the host, each
+client's inputs go through an adaptive buffer that absorbs irregular
+arrival without building up extra delay.
+
+More details are in the source:
 `src/game_logic/game_world_network.cpp` and `src/frontend/network_session.cpp`.
 
 ## Credits and license

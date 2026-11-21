@@ -53,6 +53,7 @@ TEST_CASE("Network protocol: messages survive encoding and decoding")
     original.mViewportSize = {41, 20};
     original.mSequence = 70000;
     original.mPredictedPosition = base::Vec2{120, 37};
+    original.mViewedFrame = 4000000000u;
 
     const auto decoded = decodeInput(encode(original));
 
@@ -68,6 +69,7 @@ TEST_CASE("Network protocol: messages survive encoding and decoding")
     CHECK(decoded->mViewportSize == base::Size{41, 20});
     CHECK(decoded->mSequence == 70000);
     CHECK(decoded->mPredictedPosition == base::Vec2{120, 37});
+    CHECK(decoded->mViewedFrame == 4000000000u);
 
     SECTION("Without prediction (player dead)")
     {
@@ -100,6 +102,7 @@ TEST_CASE("Network protocol: messages survive encoding and decoding")
     tinted.mFlags = game_logic::NetSprite::Tinted |
       game_logic::NetSprite::FlashingWhite;
     tinted.mTint = {130, 170, 255, 255};
+    tinted.mKey = 0xABCDE123u;
     original.mSprites = {tinted, game_logic::NetSprite{}};
     original.mFirstForegroundSprite = 1;
 
@@ -127,6 +130,8 @@ TEST_CASE("Network protocol: messages survive encoding and decoding")
     CHECK(decoded->mSprites[0].mImageId == 777);
     CHECK(decoded->mSprites[0].mFlags == tinted.mFlags);
     CHECK(decoded->mSprites[0].mTint == tinted.mTint);
+    CHECK(decoded->mSprites[0].mKey == 0xABCDE123u);
+    CHECK(decoded->mSprites[1].mKey == 0);
     CHECK(decoded->mFirstForegroundSprite == 1);
 
     REQUIRE(decoded->mDynamicSections.size() == 1);

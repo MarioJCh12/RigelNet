@@ -229,6 +229,7 @@ set(core_sources
     game_logic/entity_factory.cpp
     game_logic/entity_factory.hpp
     game_logic/game_world.cpp
+    game_logic/snapshot_interpolation.cpp
     game_logic/deathmatch_spawn_points.cpp
     game_logic/game_world_deathmatch.cpp
     game_logic/game_world_network.cpp

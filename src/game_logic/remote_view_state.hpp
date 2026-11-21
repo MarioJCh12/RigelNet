@@ -19,6 +19,7 @@
 #include "base/warnings.hpp"
 #include "engine/sprite_rendering_system.hpp"
 #include "frontend/game_service_provider.hpp"
+#include "game_logic/snapshot_interpolation.hpp"
 #include "game_logic_common/network_world.hpp"
 
 RIGEL_DISABLE_WARNINGS
@@ -38,10 +39,11 @@ struct RemoteViewState
   int mPlayerIndex = 0;
   NetSnapshot mSnapshot;
 
-  // Sprites from the host's snapshot. Our own player is drawn from the
-  // local simulation (prediction) and merged in when rendering.
-  std::vector<engine::SpriteDrawSpec> mHostSprites;
-  int mHostFirstForegroundSprite = 0;
+  // Sprites from the host's snapshots, shown slightly in the past for
+  // smooth movement. Our own player is drawn from the local simulation
+  // (prediction) and merged in when rendering.
+  SnapshotInterpolator mInterpolator;
+  int mFramesSinceStatsLog = 0;
 
   /** True while our own player is alive and simulated locally */
   bool mIsPredicting = false;

@@ -610,45 +610,68 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
     }
 
     auto input = inputFor(i);
-    std::optional<RemotePlayerFrame> remoteFrame;
 
-    if (!participant.mIsLocal)
+    // Local players move once per frame. Network players move once for each
+    // of their inputs that arrived: Usually one per frame, sometimes none
+    // (late), sometimes two (catching up after a lag spike). This keeps our
+    // simulation of them in step with the client's own (prediction), one
+    // input at a time.
+    std::vector<std::optional<RemotePlayerFrame>> steps;
+    if (participant.mIsLocal)
     {
-      // Network players move only when their input for a frame has arrived.
-      // This keeps the host's simulation of them in step with the
-      // client's own simulation (prediction), one input at a time.
-      remoteFrame = std::exchange(participant.mPendingRemoteFrame, {});
-      if (!remoteFrame)
+      steps.emplace_back();
+    }
+    else
+    {
+      for (auto& frame : std::exchange(participant.mPendingRemoteFrames, {}))
+      {
+        steps.emplace_back(frame);
+      }
+
+      if (steps.empty())
       {
         continue;
       }
+    }
 
-      if (!dm.mRoundWinner)
+    for (const auto& remoteFrame : steps)
+    {
+      if (remoteFrame)
       {
-        input = remoteFrame->mInput;
+        if (!dm.mRoundWinner)
+        {
+          input = remoteFrame->mInput;
+        }
+
+        // The client sees the other players slightly in the past. Shots
+        // fired now get checked against where they were back then.
+        participant.mRewindFrames = dm.mOptions.mLagCompensation
+          ? lagCompensationFrames(
+              dm.mFrameCounter + 1, remoteFrame->mViewedFrame)
+          : 0;
       }
-    }
 
-    participant.mpInteractionSystem->updatePlayerInteraction(
-      input, state.mEntities);
+      participant.mpInteractionSystem->updatePlayerInteraction(
+        input, state.mEntities);
 
-    // Teleporters report their destination via an event, which GameWorld
-    // stores. In single player, the teleport happens at the end of the
-    // frame. Here, we need to know which player used the teleporter, so we
-    // apply it right away.
-    if (state.mTeleportTargetPosition)
-    {
-      participant.mpPlayer->position() = *state.mTeleportTargetPosition;
-      state.mTeleportTargetPosition = std::nullopt;
-      participant.mpCamera->centerViewOnPlayer();
-      participant.mPreviousCameraPosition = participant.mpCamera->position();
-    }
+      // Teleporters report their destination via an event, which GameWorld
+      // stores. In single player, the teleport happens at the end of the
+      // frame. Here, we need to know which player used the teleporter, so
+      // we apply it right away.
+      if (state.mTeleportTargetPosition)
+      {
+        participant.mpPlayer->position() = *state.mTeleportTargetPosition;
+        state.mTeleportTargetPosition = std::nullopt;
+        participant.mpCamera->centerViewOnPlayer();
+        participant.mPreviousCameraPosition = participant.mpCamera->position();
+      }
 
-    participant.mpPlayer->update(input);
+      participant.mpPlayer->update(input);
 
-    if (remoteFrame)
-    {
-      applyPredictedPosition(int(i), *remoteFrame);
+      if (remoteFrame)
+      {
+        applyPredictedPosition(int(i), *remoteFrame);
+      }
     }
 
     participant.mPreviousCameraPosition = participant.mpCamera->position();
@@ -656,6 +679,8 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
   }
 
   state.mPreviousCameraPosition = dm.mParticipants[0].mPreviousCameraPosition;
+
+  assignProjectileRewind();
 
   state.mDynamicGeometrySystem.updateShootableWalls();
 
@@ -716,7 +741,44 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
 
   ++dm.mFrameCounter;
 
+  for (auto& participant : dm.mParticipants)
+  {
+    const auto canBeHit =
+      participant.mIsActive && !participant.mpPlayer->isDead();
+    participant.mHitBoxHistory.record(
+      dm.mFrameCounter,
+      canBeHit
+        ? std::optional<base::Rect<int>>{participant.mpPlayer->worldSpaceHitBox()}
+        : std::nullopt);
+  }
+
   state.mIsOddFrame = !state.mIsOddFrame;
+}
+
+
+void GameWorld::assignProjectileRewind()
+{
+  auto& participants = mpDeathmatch->mParticipants;
+
+  mpState->mEntities.each<components::ProjectileOwner>(
+    [&](entityx::Entity, components::ProjectileOwner& owner)
+    {
+      if (owner.mRewindFrames)
+      {
+        return;
+      }
+
+      // Fired during this frame
+      owner.mRewindFrames = 0;
+      for (const auto& participant : participants)
+      {
+        if (participant.mpPlayer->entity() == owner.mOwner)
+        {
+          owner.mRewindFrames = participant.mIsLocal ? 0 : participant.mRewindFrames;
+          break;
+        }
+      }
+    });
 }
 
 
@@ -771,13 +833,36 @@ void GameWorld::applyPlayerVsPlayerDamage()
           continue;
         }
 
-        if (!projectileBox.intersects(target.mpPlayer->worldSpaceHitBox()))
+        // Lag compensation: Check against where the target was on the
+        // shooter's screen. The target's current hit box applies if there's
+        // nothing to compensate for.
+        const auto rewind = owner.mRewindFrames.value_or(0);
+        const auto targetBox = rewind > 0
+          ? target.mHitBoxHistory.at(
+              mpDeathmatch->mFrameCounter + 1 - std::uint32_t(rewind))
+          : std::optional<base::Rect<int>>{
+              target.mpPlayer->worldSpaceHitBox()};
+        if (!targetBox || !projectileBox.intersects(*targetBox))
         {
           continue;
         }
 
         const auto wasInMercyFrames = target.mpPlayer->isInMercyFrames();
         target.mpPlayer->takeDamage(damage);
+
+        if (rewind > 0 && !wasInMercyFrames)
+        {
+          LOG_F(
+            INFO,
+            "Player %d hit player %d, judged %d frames in the past (lag "
+            "compensation)%s",
+            shooterIndex ? *shooterIndex + 1 : 0,
+            int(i) + 1,
+            rewind,
+            projectileBox.intersects(target.mpPlayer->worldSpaceHitBox())
+              ? ""
+              : ", would have missed without");
+        }
 
         if (!wasInMercyFrames && shooterIndex)
         {

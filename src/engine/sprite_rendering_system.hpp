@@ -59,6 +59,10 @@ struct SpriteDrawSpec
   bool mIsFlashingWhite;
   bool mUseCloakEffect;
   std::optional<base::Color> mTint = std::nullopt;
+
+  /** Identifies the entity and part of it this sprite belongs to, stable
+   * across frames. Used by network deathmatch. 0 means unknown. */
+  std::uint32_t mKey = 0;
 };
 
 

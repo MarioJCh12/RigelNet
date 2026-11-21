@@ -69,6 +69,10 @@ struct CommandLineOptions
   /** For testing network play: Added round-trip time in milliseconds */
   int mSimulatedLatencyMs = 0;
 
+  /** For testing network play: Random variation of the latency, in
+   * milliseconds per direction */
+  int mSimulatedJitterMs = 0;
+
   /** For automated testing: Replaces keyboard/controller input with a
    * repeating sequence. Each character is one frame: L/R = left/right,
    * U/D = up/down, J = jump, F = fire, anything else = nothing. */

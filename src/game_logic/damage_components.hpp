@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "base/spatial_types.hpp"
 #include "base/warnings.hpp"
 
@@ -131,6 +133,11 @@ struct ProjectileOwner
   }
 
   entityx::Entity mOwner;
+
+  /** Lag compensation: How many frames in the past the shooter saw other
+   * players when firing. Hits are checked against where players were back
+   * then. Assigned by the deathmatch logic right after the shot is fired. */
+  std::optional<int> mRewindFrames;
 };
 
 } // namespace components

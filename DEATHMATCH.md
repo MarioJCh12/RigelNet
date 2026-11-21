@@ -132,6 +132,8 @@ probarlo en un solo PC, abre dos copias del juego y conecta la segunda a
 | `--connect <ip>` | Se une a una partida (`ip` o `ip:puerto`) | — |
 | `--port <número>` | Puerto UDP del host | 7777 |
 | `--simulate-lag <ms>` | Solo cliente, para pruebas: añade ese retraso (ida y vuelta) a la conexión | 0 |
+| `--simulate-jitter <ms>` | Solo cliente, para pruebas: hace que el retraso varíe al azar hasta esa cantidad, como en una conexión real irregular | 0 |
+| `--no-lag-compensation` | Solo host: los impactos se juzgan por dónde está cada jugador en el host, no por lo que vio quien disparó | (activada) |
 | `--players <2-4>` | Plazas en total, incluido el host | 4 |
 | `--frag-limit`, `--item-respawn`, `--keep-enemies`, `--difficulty` | Igual que en local; solo las usa el host | |
 
@@ -152,10 +154,30 @@ Cosas a tener en cuenta:
   propio Duke en su PC (predicción), así que **tu personaje responde al
   instante aunque haya ping alto**. Si la simulación del cliente no coincide
   con la del host (por ejemplo, el host vio un ventilador que te empujó o una
-  puerta cerrada), el cliente se corrige solo. A los demás jugadores los ves
-  con el retraso de la conexión.
+  puerta cerrada), el cliente se corrige solo.
+- **Movimiento suave de los demás (interpolación):** por Internet los datos
+  del host no llegan a ritmo constante: a veces llegan dos juntos y a veces
+  ninguno. El cliente guarda unos pocos y muestra a los demás jugadores,
+  enemigos y disparos un poquito en el pasado (normalmente unos 130 ms), a
+  ritmo fijo, deslizándolos entre una posición y la siguiente. El retraso se
+  ajusta solo: más si la conexión es irregular, menos si es estable. Tu
+  propio Duke no se ve afectado, sigue respondiendo al instante.
+- **Compensación de lag:** como ves a los demás un poco en el pasado, el
+  host juzga tus disparos según lo que veías tú en pantalla al disparar, no
+  según dónde estaba el rival cuando le llegó tu disparo. Si le diste en tu
+  pantalla, le diste. Tiene un límite de 0,8 segundos: con más retraso que
+  eso tienes que adelantar el tiro. La contrapartida, como en cualquier
+  juego con compensación, es que a veces te pueden dar justo después de
+  ponerte a cubierto.
+- **El host se adapta a conexiones irregulares:** guarda las entradas de
+  cada cliente que llegan a tirones, pero si durante un rato sobran, las
+  gasta más rápido para no acumular retraso.
 - **Probar el retraso sin Internet:** añade `--simulate-lag 200` al cliente
-  para simular 200 ms de ping, por ejemplo al conectarte a `127.0.0.1`.
+  para simular 200 ms de ping, y `--simulate-jitter 80` para que además
+  varíe, por ejemplo al conectarte a `127.0.0.1`. El archivo de log del
+  cliente muestra cada 5 segundos una línea "Network smoothness" con cuántos
+  tirones habría habido sin interpolación ("received") y cuántos se ven
+  ("shown").
 - **Si el host abre el menú (Esc), la partida se pausa para todos.**
 - **Un cliente que sale al menú principal abandona la partida.** Para
   volver a entrar, reinicia el juego con `--connect`.
@@ -302,9 +324,11 @@ indica en qué paso; pásame ese error.
 | `src/game_logic_common/network_world.hpp` | Datos que el host manda a los clientes |
 | `src/network/` | Protocolo de red y conexión (sobre ENet) |
 | `src/frontend/network_session.cpp` | Une la red con el bucle del juego: altas, bajas, entradas y envíos |
+| `src/game_logic/snapshot_interpolation.cpp` | Interpolación en el cliente: muestra lo que manda el host a ritmo constante |
 | `3rd_party/enet/` | Librería de red ENet (licencia MIT), incluida como código fuente |
 | `test/test_multiplayer.cpp` | Tests de lo anterior |
 | `test/test_network_protocol.cpp` | Tests del protocolo de red |
+| `test/test_snapshot_interpolation.cpp` | Tests de la interpolación y la compensación de lag |
 | `tools/deathmatch_arena/make_arena.py` | Generador de la arena de prueba |
 
 El modo de un jugador funciona exactamente igual que antes. Todas las

@@ -46,6 +46,10 @@ struct DeathmatchOptions
    * 0 means all players are local.
    */
   int mNumLocalPlayers = 0;
+
+  /** Network games: Judge hits by what the shooter saw on their screen,
+   * instead of where the target was on the host when the shot arrived. */
+  bool mLagCompensation = true;
 };
 
 } // namespace rigel::game_logic

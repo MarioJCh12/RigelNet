@@ -17,6 +17,7 @@ add_executable(tests
     test_letter_collection.cpp
     test_multiplayer.cpp
     test_network_protocol.cpp
+    test_snapshot_interpolation.cpp
     test_physics_system.cpp
     test_player.cpp
     test_rng.cpp

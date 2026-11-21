@@ -32,6 +32,8 @@ RIGEL_DISABLE_WARNINGS
 #include <entityx/entityx.h>
 RIGEL_RESTORE_WARNINGS
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -71,6 +73,72 @@ inline std::optional<base::Color> deathmatchPlayerTint(const int playerIndex)
  * Players 2 and up get their own copies of these, owned here. The raw
  * pointers always point to the right objects regardless of the player.
  */
+/** Most frames that lag compensation looks into the past, 0.8
+ * seconds. Players with more latency than this have to lead their shots. */
+constexpr auto MAX_LAG_COMPENSATION_FRAMES = 12;
+
+
+/** How many frames to rewind other players when checking hits from a shot
+ * fired on host frame hostFrame by a player who was seeing viewedFrame. */
+inline int lagCompensationFrames(
+  const std::uint32_t hostFrame,
+  const std::uint32_t viewedFrame)
+{
+  if (viewedFrame == 0 || viewedFrame >= hostFrame)
+  {
+    return 0;
+  }
+
+  return int(std::min<std::uint32_t>(
+    hostFrame - viewedFrame, std::uint32_t(MAX_LAG_COMPENSATION_FRAMES)));
+}
+
+
+/** Where a player's hit box was during recent frames, for lag compensation */
+class HitBoxHistory
+{
+public:
+  static constexpr auto SIZE = 32u;
+
+  /** Record the hit box after the given frame. Nothing means the player
+   * couldn't be hit (dead or not in the game). */
+  void record(
+    const std::uint32_t frame,
+    const std::optional<base::Rect<int>>& hitBox)
+  {
+    auto& entry = mEntries[frame % SIZE];
+    entry.mFrame = frame;
+    entry.mHitBox = hitBox;
+    entry.mIsValid = true;
+  }
+
+  /** The hit box after the given frame. Nothing if the player couldn't be
+   * hit back then, or if we don't know anymore. */
+  std::optional<base::Rect<int>> at(const std::uint32_t frame) const
+  {
+    const auto& entry = mEntries[frame % SIZE];
+    if (!entry.mIsValid || entry.mFrame != frame)
+    {
+      return std::nullopt;
+    }
+
+    return entry.mHitBox;
+  }
+
+  void clear() { mEntries = {}; }
+
+private:
+  struct Entry
+  {
+    std::uint32_t mFrame = 0;
+    std::optional<base::Rect<int>> mHitBox;
+    bool mIsValid = false;
+  };
+
+  std::array<Entry, SIZE> mEntries;
+};
+
+
 struct DeathmatchParticipant
 {
   std::unique_ptr<data::PersistentPlayerState> mpOwnedModel;
@@ -96,10 +164,16 @@ struct DeathmatchParticipant
   bool mIsLocal = true;
   base::Size mRemoteViewportSize{32, 20};
 
-  // Network players: Input for the next frame, and the sequence number of
-  // the last input that was applied (for client-side prediction)
-  std::optional<RemotePlayerFrame> mPendingRemoteFrame;
+  // Network players: Inputs to apply in the next frame (usually one), and
+  // the sequence number of the last input that was applied (for client-side
+  // prediction)
+  std::vector<RemotePlayerFrame> mPendingRemoteFrames;
   std::uint32_t mLastInputSequence = 0;
+
+  // Lag compensation: How far in the past this player currently sees the
+  // others (network players only), and where this player was recently
+  int mRewindFrames = 0;
+  HitBoxHistory mHitBoxHistory;
 
   int mFrags = 0;
   int mDeaths = 0;

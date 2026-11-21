@@ -849,11 +849,8 @@ void GameWorld::render(const float interpolationFactor)
 
     // While our player is alive, we simulate it ourselves (prediction), and
     // the camera follows the local simulation. Otherwise, use the host's.
-    const auto cameraPosition = mpRemoteView->mIsPredicting
-      ? mpState->mCamera.position()
-      : snapshot.mCameraPosition;
-
-    updateRemoteSprites(interpolationFactor);
+    // See updateRemoteSprites().
+    const auto cameraPosition = updateRemoteSprites(interpolationFactor);
     drawWorldFromCamera(worldAreaSize, cameraPosition, cameraPosition);
 
     const auto playerIndex = mpRemoteView->mPlayerIndex;

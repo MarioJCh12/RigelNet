@@ -202,6 +202,10 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
       .help(
         "For testing network play: Add this much latency (round trip) to "
         "the connection when using --connect")
+    | lyra::opt(config.mSimulatedJitterMs, "ms")["--simulate-jitter"]
+      .help(
+        "For testing network play: Make the latency vary randomly by up to "
+        "this much when using --connect")
     | lyra::opt(config.mDebugInputScript, "script")["--debug-input-script"]
       .help("For automated testing: Play with scripted input")
     | lyra::opt(config.mConnectAddress, "address")["--connect"]
@@ -215,6 +219,12 @@ std::variant<CommandLineOptions, int> parseArgs(int argc, char** argv)
       .help("Seconds until items re-appear in deathmatch (default 20)")
     | lyra::opt(deathmatchOptions.mKeepEnemies)["--keep-enemies"]
       .help("Don't remove enemies from the map in deathmatch")
+    | lyra::opt([&](const bool disable) {
+          deathmatchOptions.mLagCompensation = !disable;
+        })["--no-lag-compensation"]
+      .help(
+        "Network deathmatch host: Judge hits by where players are on the "
+        "host, not by what the shooter saw")
     | lyra::group([&](const lyra::group&){})
       .add_argument(lyra::opt([&](const std::string& levelSpec){
           config.mLevelToJumpTo = data::GameSessionId{
@@ -372,6 +382,12 @@ void connectToHost(CommandLineOptions& config)
   {
     pClient->setSimulatedLatency(
       std::chrono::milliseconds(config.mSimulatedLatencyMs));
+  }
+
+  if (config.mSimulatedJitterMs > 0)
+  {
+    pClient->setSimulatedJitter(
+      std::chrono::milliseconds(config.mSimulatedJitterMs));
   }
 
   config.mpNetworkClient = std::move(pClient);

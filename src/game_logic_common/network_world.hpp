@@ -49,6 +49,10 @@ struct NetSprite
   int mImageId = 0;
   std::uint8_t mFlags = 0;
   base::Color mTint;
+
+  /** Identifies the same sprite across snapshots, so that clients can
+   * interpolate its movement. 0 means unknown. */
+  std::uint32_t mKey = 0;
 };
 
 
@@ -128,6 +132,9 @@ struct RemotePlayerFrame
   PlayerInput mInput;
   std::uint32_t mSequence = 0;
   std::optional<base::Vec2> mPredictedPosition;
+
+  /** Host frame the client was showing at the time (lag compensation) */
+  std::uint32_t mViewedFrame = 0;
 };
 
 
@@ -151,8 +158,9 @@ public:
   virtual void
     setRemoteViewportSize(int playerIndex, const base::Size& size) = 0;
 
-  /** Input for a network player's next update. Network players without
-   * input for a frame don't move during that frame. */
+  /** Input for a network player's next update. Can be called more than
+   * once per frame, each input is then applied in turn. Network players
+   * without input for a frame don't move during that frame. */
   virtual void
     setRemotePlayerFrame(int playerIndex, const RemotePlayerFrame& frame) = 0;
 
@@ -180,6 +188,11 @@ public:
 
   /** Move the predicted player, to fix a difference to the host's game */
   virtual void correctPrediction(const base::Vec2& offset) = 0;
+
+  /** Host frame currently shown for everything except our own player.
+   * Remote things are shown slightly in the past (interpolation), the host
+   * uses this to judge our shots fairly (lag compensation). */
+  virtual std::uint32_t viewedFrame() const = 0;
 };
 
 } // namespace rigel::game_logic

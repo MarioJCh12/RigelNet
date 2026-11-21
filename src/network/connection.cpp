@@ -446,7 +446,7 @@ std::vector<NetworkEvent> NetworkClient::poll()
     }
   }
 
-  if (mSimulatedDelay == Clock::duration{})
+  if (!isSimulatingLag())
   {
     return received;
   }
@@ -454,7 +454,8 @@ std::vector<NetworkEvent> NetworkClient::poll()
   // Simulated latency: Hold back incoming messages until they're due
   for (auto& event : received)
   {
-    mDelayedEvents.push_back({now + mSimulatedDelay, std::move(event)});
+    mDelayedEvents.push_back(
+      {simulatedDueTime(mLastDelayedEventDue), std::move(event)});
   }
 
   std::vector<NetworkEvent> events;
@@ -477,10 +478,10 @@ void NetworkClient::send(
   const ByteBuffer& data,
   const bool reliable)
 {
-  if (mSimulatedDelay != Clock::duration{})
+  if (isSimulatingLag())
   {
     mDelayedSends.push_back(
-      {Clock::now() + mSimulatedDelay, channel, data, reliable});
+      {simulatedDueTime(mLastDelayedSendDue), channel, data, reliable});
     return;
   }
 
@@ -507,6 +508,40 @@ void NetworkClient::setSimulatedLatency(
     std::chrono::duration_cast<Clock::duration>(roundTripTime) / 2;
   LOG_F(
     INFO, "Simulating %d ms of network latency", int(roundTripTime.count()));
+}
+
+
+void NetworkClient::setSimulatedJitter(const std::chrono::milliseconds jitter)
+{
+  mSimulatedJitter = std::chrono::duration_cast<Clock::duration>(jitter);
+  LOG_F(INFO, "Simulating up to %d ms of network jitter", int(jitter.count()));
+}
+
+
+bool NetworkClient::isSimulatingLag() const
+{
+  return mSimulatedDelay != Clock::duration{} ||
+    mSimulatedJitter != Clock::duration{};
+}
+
+
+auto NetworkClient::simulatedDueTime(Clock::time_point& lastDue)
+  -> Clock::time_point
+{
+  auto delay = mSimulatedDelay;
+  if (mSimulatedJitter != Clock::duration{})
+  {
+    // xorshift, good enough for testing
+    mJitterRandomState ^= mJitterRandomState << 13;
+    mJitterRandomState ^= mJitterRandomState >> 17;
+    mJitterRandomState ^= mJitterRandomState << 5;
+    delay += mSimulatedJitter * (mJitterRandomState % 1001) / 1000;
+  }
+
+  // Like on a real connection, a message delayed more holds up the ones
+  // behind it
+  lastDue = std::max(lastDue, Clock::now() + delay);
+  return lastDue;
 }
 
 

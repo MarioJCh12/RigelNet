@@ -46,7 +46,7 @@ namespace rigel::network
 {
 
 constexpr std::uint32_t PROTOCOL_MAGIC = 0x4d443252; // "R2DM"
-constexpr std::uint16_t PROTOCOL_VERSION = 3;
+constexpr std::uint16_t PROTOCOL_VERSION = 4;
 constexpr std::uint16_t DEFAULT_PORT = 7777;
 
 enum Channel : std::uint8_t
@@ -102,6 +102,10 @@ struct InputMessage
   /** Where the client's own simulation put the player after applying this
    * input (client-side prediction). Not set while the player is dead. */
   std::optional<base::Vec2> mPredictedPosition;
+
+  /** Host frame the client was showing when producing this input, used for
+   * lag compensation. 0 if the client hasn't shown any snapshot yet. */
+  std::uint32_t mViewedFrame = 0;
 };
 
 

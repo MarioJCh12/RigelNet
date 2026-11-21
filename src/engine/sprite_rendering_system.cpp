@@ -100,7 +100,8 @@ void collectVisibleSprites(
                   const bool useCloakEffect,
                   const bool drawTopmost,
                   const int drawOrder,
-                  const std::optional<base::Color>& tint)
+                  const std::optional<base::Color>& tint,
+                  const std::uint32_t key)
   {
     const auto topLeft = drawPosition(frame, position);
 
@@ -118,7 +119,7 @@ void collectVisibleSprites(
         previousTopLeft, topLeft, interpolationFactor),
       data::tilesToPixels(frame.mDimensions)};
     const auto drawSpec = SpriteDrawSpec{
-      destRect, frame.mImageId, flashingWhite, useCloakEffect, tint};
+      destRect, frame.mImageId, flashingWhite, useCloakEffect, tint, key};
 
     output.push_back({drawSpec, drawOrder, drawTopmost});
   };
@@ -146,6 +147,15 @@ void collectVisibleSprites(
         ? entity.component<const OverrideDrawOrder>()->mDrawOrder
         : sprite.mpDrawData->mDrawOrder;
 
+      // Stable identity of each part of this entity, see SpriteDrawSpec
+      auto partIndex = 0u;
+      auto nextKey = [&]()
+      {
+        const auto id = entity.id();
+        return ((id.index() & 0xFFFFFu) << 12) | ((id.version() & 0x3Fu) << 6) |
+          (partIndex++ & 0x3Fu);
+      };
+
       auto slotIndex = 0;
       for (const auto& baseFrameIndex : sprite.mFramesToRender)
       {
@@ -166,7 +176,8 @@ void collectVisibleSprites(
           sprite.mUseCloakEffect,
           drawTopmost,
           drawOrder,
-          tint);
+          tint,
+          nextKey());
         ++slotIndex;
       }
 
@@ -186,7 +197,8 @@ void collectVisibleSprites(
             sprite.mUseCloakEffect,
             drawTopmost,
             drawOrder,
-            tint);
+            tint,
+            nextKey());
         }
       }
 

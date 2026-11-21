@@ -125,6 +125,10 @@ public:
    * messages each. */
   void setSimulatedLatency(std::chrono::milliseconds roundTripTime);
 
+  /** For testing: Make the simulated latency vary randomly by up to this
+   * much per message, in each direction. Order of messages is kept. */
+  void setSimulatedJitter(std::chrono::milliseconds jitter);
+
   /** Messages that arrived during the handshake, after the welcome */
   std::vector<ByteBuffer> takeEarlyMessages();
 
@@ -153,6 +157,13 @@ private:
   std::vector<ByteBuffer> mEarlyMessages;
 
   Clock::duration mSimulatedDelay{};
+  Clock::duration mSimulatedJitter{};
+  Clock::time_point mLastDelayedSendDue;
+  Clock::time_point mLastDelayedEventDue;
+  std::uint32_t mJitterRandomState = 0x12345678u;
+
+  Clock::time_point simulatedDueTime(Clock::time_point& lastDue);
+  bool isSimulatingLag() const;
   std::vector<DelayedSend> mDelayedSends;
   std::vector<DelayedEvent> mDelayedEvents;
 };

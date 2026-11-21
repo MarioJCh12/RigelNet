@@ -241,7 +241,8 @@ void GameWorld::setRemotePlayerFrame(
     return;
   }
 
-  mpDeathmatch->mParticipants[playerIndex].mPendingRemoteFrame = frame;
+  mpDeathmatch->mParticipants[playerIndex].mPendingRemoteFrames.push_back(
+    frame);
 }
 
 
@@ -367,6 +368,7 @@ NetSnapshot GameWorld::captureSnapshot(const int playerIndex)
     sprite.mDestRect = spec.mDestRect;
     sprite.mDestRect.topLeft += worldOffset;
     sprite.mImageId = spec.mImageId;
+    sprite.mKey = spec.mKey;
     if (spec.mIsFlashingWhite)
     {
       sprite.mFlags |= NetSprite::FlashingWhite;
@@ -505,6 +507,25 @@ void GameWorld::updateRemoteView(const PlayerInput& input)
     state.mWaterAnimStep = 0;
   }
 
+  remoteView.mInterpolator.advance();
+
+  // Every 5 seconds, log how smooth the connection is
+  if (++remoteView.mFramesSinceStatsLog >= 75)
+  {
+    remoteView.mFramesSinceStatsLog = 0;
+    const auto stats = remoteView.mInterpolator.takeStats();
+    LOG_F(
+      INFO,
+      "Network smoothness over %d frames: received %d stalls/%d skips, "
+      "shown %d stalls/%d skips, delay %.1f frames",
+      stats.mFrames,
+      stats.mReceivedStalls,
+      stats.mReceivedSkips,
+      stats.mShownStalls,
+      stats.mShownSkips,
+      remoteView.mInterpolator.delay());
+  }
+
   if (!remoteView.mIsPredicting)
   {
     return;
@@ -550,7 +571,7 @@ void GameWorld::updateRemoteView(const PlayerInput& input)
 }
 
 
-void GameWorld::updateRemoteSprites(const float interpolationFactor)
+base::Vec2 GameWorld::updateRemoteSprites(const float interpolationFactor)
 {
   auto& state = *mpState;
   auto& remoteView = *mpRemoteView;
@@ -566,24 +587,43 @@ void GameWorld::updateRemoteSprites(const float interpolationFactor)
     localSprites = state.mSpriteRenderingSystem.sprites();
   }
 
+  // Everything except our own player is shown slightly in the past, moving
+  // smoothly between the snapshots we received
+  const auto smooth = mpOptions->mMotionSmoothing;
+  const auto hostFrame =
+    remoteView.mInterpolator.sample(smooth ? interpolationFactor : 1.0f, smooth);
+
   // The host sends world positions. Draw them relative to our camera, which
   // may be ahead of the host's camera due to prediction. This keeps static
   // things like items exactly in place while our view moves.
   const auto cameraPosition = remoteView.mIsPredicting
     ? state.mCamera.position()
-    : remoteView.mSnapshot.mCameraPosition;
+    : (remoteView.mInterpolator.hasData() ? hostFrame.mCameraPosition
+                                          : remoteView.mSnapshot.mCameraPosition);
   const auto cameraOffset = data::tilesToPixels(cameraPosition);
 
-  auto hostSprites = remoteView.mHostSprites;
-  for (auto& sprite : hostSprites)
+  std::vector<engine::SpriteDrawSpec> hostSprites;
+  hostSprites.reserve(hostFrame.mSprites.size());
+  for (const auto& sprite : hostFrame.mSprites)
   {
-    sprite.mDestRect.topLeft -= cameraOffset;
+    engine::SpriteDrawSpec spec{
+      sprite.mDestRect,
+      sprite.mImageId,
+      (sprite.mFlags & NetSprite::FlashingWhite) != 0,
+      (sprite.mFlags & NetSprite::CloakEffect) != 0};
+    if (sprite.mFlags & NetSprite::Tinted)
+    {
+      spec.mTint = sprite.mTint;
+    }
+    spec.mDestRect.topLeft -= cameraOffset;
+
+    hostSprites.push_back(spec);
   }
 
   // Our player goes on top of the host's regular sprites, but below the
   // ones that are drawn in front of the map's foreground
   const auto firstForeground = std::clamp(
-    remoteView.mHostFirstForegroundSprite, 0, int(hostSprites.size()));
+    hostFrame.mFirstForegroundSprite, 0, int(hostSprites.size()));
 
   std::vector<engine::SpriteDrawSpec> sprites;
   sprites.reserve(hostSprites.size() + localSprites.size());
@@ -595,6 +635,8 @@ void GameWorld::updateRemoteSprites(const float interpolationFactor)
 
   state.mSpriteRenderingSystem.setSprites(
     std::move(sprites), firstForeground + int(localSprites.size()));
+
+  return cameraPosition;
 }
 
 
@@ -606,6 +648,12 @@ std::optional<base::Vec2> GameWorld::predictedPlayerPosition() const
   }
 
   return mpState->mPlayer.position();
+}
+
+
+std::uint32_t GameWorld::viewedFrame() const
+{
+  return mpRemoteView ? mpRemoteView->mInterpolator.viewedFrame() : 0;
 }
 
 
@@ -627,24 +675,7 @@ void GameWorld::applySnapshot(const NetSnapshot& snapshot)
   state.mScreenShakeOffsetX = snapshot.mScreenShakeOffsetX;
   state.mScreenFlashColor = snapshot.mScreenFlashColor;
 
-  std::vector<engine::SpriteDrawSpec> sprites;
-  sprites.reserve(snapshot.mSprites.size());
-  for (const auto& sprite : snapshot.mSprites)
-  {
-    engine::SpriteDrawSpec spec{
-      sprite.mDestRect,
-      sprite.mImageId,
-      (sprite.mFlags & NetSprite::FlashingWhite) != 0,
-      (sprite.mFlags & NetSprite::CloakEffect) != 0};
-    if (sprite.mFlags & NetSprite::Tinted)
-    {
-      spec.mTint = sprite.mTint;
-    }
-
-    sprites.push_back(spec);
-  }
-  remoteView.mHostSprites = std::move(sprites);
-  remoteView.mHostFirstForegroundSprite = snapshot.mFirstForegroundSprite;
+  remoteView.mInterpolator.addSnapshot(snapshot);
 
   // Our own player: Death and respawning are decided by the host
   auto& player = state.mPlayer;

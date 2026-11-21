@@ -404,7 +404,8 @@ bool GameRunner::levelFinished() const
 
 bool GameRunner::gameQuit() const
 {
-  return mMenu.quitRequested();
+  return mMenu.quitRequested() ||
+    (mpNetworkSession && mpNetworkSession->shouldLeaveGame());
 }
 
 

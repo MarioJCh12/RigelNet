@@ -116,6 +116,10 @@ public:
   virtual void keepAlive() = 0;
 
   virtual bool isClient() const = 0;
+
+  /** Client only: True once the connection to the host is gone and the
+   * player has seen the message about it */
+  virtual bool shouldLeaveGame() const = 0;
 };
 
 

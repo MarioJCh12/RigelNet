@@ -126,6 +126,15 @@ struct NetWorldEvents
 };
 
 
+/** What a client's own simulation (prediction) says about its player */
+struct PredictedPlayerState
+{
+  base::Vec2 mPosition;
+  int mWeapon = 0;
+  int mAmmo = 0;
+};
+
+
 /** One frame of input from a network player, see InputMessage */
 struct RemotePlayerFrame
 {
@@ -186,8 +195,17 @@ public:
   /** Position of the locally simulated (predicted) player, if alive */
   virtual std::optional<base::Vec2> predictedPlayerPosition() const = 0;
 
-  /** Move the predicted player, to fix a difference to the host's game */
-  virtual void correctPrediction(const base::Vec2& offset) = 0;
+  /** State of the locally simulated (predicted) player, if alive */
+  virtual std::optional<PredictedPlayerState> predictedPlayerState() const = 0;
+
+  /** Move the predicted player, to fix a difference to the host's game.
+   * If that would put it inside a wall, it's moved to hostPosition instead,
+   * which is where the host says it was a little while ago. */
+  virtual void
+    correctPrediction(const base::Vec2& offset, const base::Vec2& hostPosition) = 0;
+
+  /** Fix the predicted player's weapon and ammo */
+  virtual void correctWeapon(int weapon, int ammo) = 0;
 
   /** Host frame currently shown for everything except our own player.
    * Remote things are shown slightly in the past (interpolation), the host

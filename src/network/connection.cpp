@@ -348,6 +348,10 @@ NetworkClient::NetworkClient(
     fail("The host at " + addressText + " did not answer the handshake");
   }
 
+  // Notice quickly when the host is gone without saying goodbye (crashed,
+  // closed, or lost its connection). Same values the host uses for clients.
+  enet_peer_timeout(mpPeer, 8, 3000, 6000);
+
   LOG_F(
     INFO,
     "Connected to %s as player %d",

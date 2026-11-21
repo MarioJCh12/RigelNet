@@ -123,7 +123,11 @@ public:
   void setRemotePlayerFrame(int playerIndex, const RemotePlayerFrame& frame)
     override;
   std::optional<base::Vec2> predictedPlayerPosition() const override;
-  void correctPrediction(const base::Vec2& offset) override;
+  std::optional<PredictedPlayerState> predictedPlayerState() const override;
+  void correctPrediction(
+    const base::Vec2& offset,
+    const base::Vec2& hostPosition) override;
+  void correctWeapon(int weapon, int ammo) override;
   std::uint32_t viewedFrame() const override;
   void render(float interpolationFactor = 0.0f) override;
   void processEndOfFrameActions() override;

@@ -36,6 +36,7 @@
 #include "engine/sprite_rendering_system.hpp"
 #include "engine/visual_components.hpp"
 #include "frontend/game_service_provider.hpp"
+#include "game_logic/deathmatch_spawn_points.hpp"
 #include "game_logic/deathmatch_state.hpp"
 #include "game_logic/dynamic_geometry_components.hpp"
 #include "game_logic/remote_view_state.hpp"
@@ -531,17 +532,16 @@ void GameWorld::updateRemoteView(const PlayerInput& input)
     return;
   }
 
-  // Health, weapons etc. are decided by the host. Keep our copy in sync,
-  // so that our player looks and moves the same way. Our player never
-  // dies locally: The host tells us when that happens.
+  // Health is decided by the host. Our player never dies locally: The host
+  // tells us when that happens.
+  //
+  // Weapon and ammo are simulated locally like movement, since they affect
+  // it: The flame thrower works as a jetpack until it runs out of ammo.
+  // Copying them from the host would make us use outdated values, since the
+  // host's state is a little behind ours. They're corrected like the
+  // position, see correctWeapon().
   const auto& snapshot = remoteView.mSnapshot;
-  auto& model = *mpPersistentPlayerState;
-  setHealth(model, std::max(1, snapshot.mHealth));
-  if (static_cast<int>(model.weapon()) != snapshot.mWeapon)
-  {
-    model.switchToWeapon(static_cast<data::WeaponType>(snapshot.mWeapon));
-  }
-  model.setAmmo(snapshot.mAmmo);
+  setHealth(*mpPersistentPlayerState, std::max(1, snapshot.mHealth));
 
   // Resets per-frame sprite effects like flashing white. Only our player is
   // left in our world at this point, so this doesn't affect anything else.
@@ -651,18 +651,74 @@ std::optional<base::Vec2> GameWorld::predictedPlayerPosition() const
 }
 
 
+std::optional<PredictedPlayerState> GameWorld::predictedPlayerState() const
+{
+  if (!mpRemoteView || !mpRemoteView->mIsPredicting)
+  {
+    return std::nullopt;
+  }
+
+  return PredictedPlayerState{
+    mpState->mPlayer.position(),
+    static_cast<int>(mpPersistentPlayerState->weapon()),
+    mpPersistentPlayerState->ammo()};
+}
+
+
 std::uint32_t GameWorld::viewedFrame() const
 {
   return mpRemoteView ? mpRemoteView->mInterpolator.viewedFrame() : 0;
 }
 
 
-void GameWorld::correctPrediction(const base::Vec2& offset)
+void GameWorld::correctPrediction(
+  const base::Vec2& offset,
+  const base::Vec2& hostPosition)
 {
-  if (mpRemoteView && mpRemoteView->mIsPredicting)
+  if (!mpRemoteView || !mpRemoteView->mIsPredicting)
   {
-    mpState->mPlayer.position() += offset;
+    return;
   }
+
+  auto& position = mpState->mPlayer.position();
+  const auto corrected = position + offset;
+
+  // Shifting by the difference keeps the movement we simulated since then.
+  // But if the difference is big, that movement happened somewhere else,
+  // and the result could be inside a wall. The host's position is always
+  // valid, even if a little outdated.
+  if (isPlayerPositionFree(mpState->mMap, corrected))
+  {
+    position = corrected;
+  }
+  else
+  {
+    LOG_F(
+      INFO,
+      "Corrected prediction would be inside a wall, using host's position");
+    position = hostPosition;
+  }
+}
+
+
+void GameWorld::correctWeapon(const int weapon, const int ammo)
+{
+  auto& model = *mpPersistentPlayerState;
+
+  const auto type = static_cast<data::WeaponType>(
+    std::clamp(weapon, 0, static_cast<int>(data::WeaponType::FlameThrower)));
+  if (model.weapon() != type)
+  {
+    model.switchToWeapon(type);
+  }
+
+  if (model.currentWeaponConsumesAmmo() && ammo <= 0)
+  {
+    model.switchToWeapon(data::WeaponType::Normal);
+    return;
+  }
+
+  model.setAmmo(std::clamp(ammo, 0, model.currentMaxAmmo()));
 }
 
 
@@ -692,6 +748,7 @@ void GameWorld::applySnapshot(const NetSnapshot& snapshot)
   {
     // First snapshot, or respawned: Start simulating from the host's state
     player.reSpawnAt(snapshot.mPlayerPosition);
+    correctWeapon(snapshot.mWeapon, snapshot.mAmmo);
     setPlayerSpriteVisible(player, true);
     remoteView.mIsPredicting = true;
     remoteView.mLastHealth = snapshot.mHealth;

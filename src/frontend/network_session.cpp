@@ -243,6 +243,7 @@ public:
   }
 
   bool isClient() const override { return false; }
+  bool shouldLeaveGame() const override { return false; }
 
 private:
   // About half a second of input. More than that means the client is
@@ -390,6 +391,7 @@ public:
       if (event.mType == NetworkEvent::Type::Disconnected)
       {
         mpWorld->showRemoteMessage("CONNECTION TO HOST LOST");
+        mFramesSinceConnectionLost = 0;
         continue;
       }
 
@@ -452,8 +454,20 @@ public:
 
   void fillRemoteInputs(std::vector<PlayerInput>&) override { }
 
+  bool shouldLeaveGame() const override
+  {
+    return mFramesSinceConnectionLost &&
+      *mFramesSinceConnectionLost >= LEAVE_GAME_DELAY;
+  }
+
   void sendUpdates(const PlayerInput& localInput) override
   {
+    if (mFramesSinceConnectionLost)
+    {
+      ++*mFramesSinceConnectionLost;
+      return;
+    }
+
     network::InputMessage message;
     message.mSequence = mNextSequence++;
     message.mViewportSize = mpWorld->remoteViewportSize();
@@ -466,9 +480,10 @@ public:
     message.mInput =
       message.mPredictedPosition ? localInput : game_logic::PlayerInput{};
 
-    if (message.mPredictedPosition)
+    if (const auto state = mpWorld->predictedPlayerState())
     {
-      mPredictions.push_back({message.mSequence, *message.mPredictedPosition});
+      mPredictions.push_back(
+        {message.mSequence, state->mPosition, state->mWeapon, state->mAmmo});
       while (mPredictions.size() > MAX_PREDICTIONS)
       {
         mPredictions.pop_front();
@@ -495,10 +510,16 @@ private:
   {
     std::uint32_t mSequence;
     base::Vec2 mPosition;
+    int mWeapon;
+    int mAmmo;
   };
 
   // Ten seconds' worth. Older predictions can't be matched anymore.
   static constexpr auto MAX_PREDICTIONS = 150u;
+
+  // After losing the connection, show the message for 3 seconds, then go
+  // back to the main menu
+  static constexpr auto LEAVE_GAME_DELAY = 45;
 
   /** Compare where we predicted our player to be with where the host says
    * it actually was, after the same input. Correct any difference.
@@ -529,10 +550,10 @@ private:
       return;
     }
 
-    const auto error =
-      snapshot.mPlayerPosition - mPredictions.front().mPosition;
+    const auto predicted = mPredictions.front();
     mPredictions.pop_front();
 
+    const auto error = snapshot.mPlayerPosition - predicted.mPosition;
     if (error != base::Vec2{})
     {
       ++mNumCorrections;
@@ -544,10 +565,61 @@ private:
         snapshot.mLastInputSequence,
         mNumCorrections);
 
-      mpWorld->correctPrediction(error);
+      mpWorld->correctPrediction(error, snapshot.mPlayerPosition);
       for (auto& prediction : mPredictions)
       {
         prediction.mPosition += error;
+      }
+    }
+
+    reconcileWeapon(snapshot, predicted);
+  }
+
+  /** Same as for the position, for weapon and ammo. These are simulated
+   * locally, since they affect movement (the flame thrower is a jetpack
+   * until it runs out of ammo), and can differ from the host's when
+   * picking up items, which only the host does. */
+  void reconcileWeapon(
+    const game_logic::NetSnapshot& snapshot,
+    const Prediction& predicted)
+  {
+    if (snapshot.mWeapon != predicted.mWeapon)
+    {
+      LOG_F(
+        INFO,
+        "Weapon corrected from %d to %d (input %u)",
+        predicted.mWeapon,
+        snapshot.mWeapon,
+        snapshot.mLastInputSequence);
+
+      // Shots fired since then would have used up some ammo, but on a
+      // different weapon. The host's state is close enough.
+      mpWorld->correctWeapon(snapshot.mWeapon, snapshot.mAmmo);
+      for (auto& prediction : mPredictions)
+      {
+        prediction.mWeapon = snapshot.mWeapon;
+        prediction.mAmmo = snapshot.mAmmo;
+      }
+      return;
+    }
+
+    const auto ammoError = snapshot.mAmmo - predicted.mAmmo;
+    if (ammoError == 0)
+    {
+      return;
+    }
+
+    const auto current = mpWorld->predictedPlayerState();
+    if (current && current->mWeapon == snapshot.mWeapon)
+    {
+      mpWorld->correctWeapon(current->mWeapon, current->mAmmo + ammoError);
+    }
+
+    for (auto& prediction : mPredictions)
+    {
+      if (prediction.mWeapon == snapshot.mWeapon)
+      {
+        prediction.mAmmo += ammoError;
       }
     }
   }
@@ -560,6 +632,7 @@ private:
   std::uint32_t mNextSequence = 1;
   std::deque<Prediction> mPredictions;
   int mNumCorrections = 0;
+  std::optional<int> mFramesSinceConnectionLost;
 };
 
 } // namespace

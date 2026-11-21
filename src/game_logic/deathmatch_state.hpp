@@ -34,6 +34,7 @@ RIGEL_RESTORE_WARNINGS
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -91,6 +92,27 @@ inline int lagCompensationFrames(
 
   return int(std::min<std::uint32_t>(
     hostFrame - viewedFrame, std::uint32_t(MAX_LAG_COMPENSATION_FRAMES)));
+}
+
+
+/** How many tiles around a network player's view to include in snapshots.
+ *
+ * The client's camera follows its own simulation, which is ahead of ours
+ * by the latency (in frames), and shows our snapshots slightly in the past
+ * on top of that. In the meantime, its camera can move by up to 2 tiles per
+ * frame (e.g. looking up/down). Things that are within this margin are
+ * already known to the client when its camera gets there, instead of
+ * popping in late.
+ */
+inline int snapshotSpriteMargin(const double latencyFrames)
+{
+  constexpr auto MIN_MARGIN = 8;
+  constexpr auto MAX_MARGIN = 32;
+  constexpr auto MAX_CAMERA_SPEED = 2;
+
+  const auto margin =
+    4 + MAX_CAMERA_SPEED * int(std::ceil(std::max(0.0, latencyFrames)));
+  return std::clamp(margin, MIN_MARGIN, MAX_MARGIN);
 }
 
 
@@ -174,6 +196,10 @@ struct DeathmatchParticipant
   // others (network players only), and where this player was recently
   int mRewindFrames = 0;
   HitBoxHistory mHitBoxHistory;
+
+  // How far behind this player's view is, in frames (network players only).
+  // Rises quickly, falls slowly. See snapshotSpriteMargin().
+  double mViewLatency = 0.0;
 
   int mFrags = 0;
   int mDeaths = 0;

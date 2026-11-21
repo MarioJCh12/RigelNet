@@ -643,6 +643,18 @@ void GameWorld::updateDeathmatchLogic(const std::vector<PlayerInput>& inputs)
           input = remoteFrame->mInput;
         }
 
+        // How far behind the client's view is. Unlike the lag compensation
+        // below, this isn't capped, since it's used for deciding what to
+        // send (see snapshotSpriteMargin()).
+        if (remoteFrame->mViewedFrame != 0)
+        {
+          const auto latency = std::max(
+            0.0,
+            double(dm.mFrameCounter + 1) - double(remoteFrame->mViewedFrame));
+          participant.mViewLatency = std::max(
+            std::min(latency, 60.0), participant.mViewLatency - 0.05);
+        }
+
         // The client sees the other players slightly in the past. Shots
         // fired now get checked against where they were back then.
         participant.mRewindFrames = dm.mOptions.mLagCompensation

@@ -341,3 +341,19 @@ TEST_CASE("Prediction corrections slide instead of jumping")
     CHECK(smoothing.offset(0.0f, false) == base::Vec2{});
   }
 }
+
+
+TEST_CASE("Snapshot margin grows with latency")
+{
+  // Low latency: Same as before
+  CHECK(snapshotSpriteMargin(0.0) == 8);
+  CHECK(snapshotSpriteMargin(2.0) == 8);
+
+  // The camera can move 2 tiles per frame while the client is ahead
+  CHECK(snapshotSpriteMargin(6.0) == 16);
+  CHECK(snapshotSpriteMargin(10.0) == 24);
+  CHECK(snapshotSpriteMargin(9.2) == 24);
+
+  // Capped, to keep snapshots from getting too big
+  CHECK(snapshotSpriteMargin(40.0) == 32);
+}

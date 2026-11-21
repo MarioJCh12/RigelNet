@@ -54,9 +54,6 @@ using engine::components::WorldPosition;
 namespace
 {
 
-/** Extra tiles around a network player's view to include sprites from */
-constexpr auto SNAPSHOT_SPRITE_MARGIN = 8;
-
 std::vector<std::uint32_t> copyMapTiles(const data::map::Map& map)
 {
   std::vector<std::uint32_t> tiles;
@@ -340,16 +337,17 @@ NetSnapshot GameWorld::captureSnapshot(const int playerIndex)
   }
 
   //
-  // The client's camera is usually a bit ahead of ours, since it follows the
-  // client's own simulation of its player. So we include sprites a bit
-  // outside of our view of this player as well, to avoid them popping in
-  // late at the edges of the client's screen.
-  const auto margin =
-    base::Vec2{SNAPSHOT_SPRITE_MARGIN, SNAPSHOT_SPRITE_MARGIN};
+  // The client's camera is usually ahead of ours, since it follows the
+  // client's own simulation of its player. So we include sprites outside of
+  // our view of this player as well, to avoid them popping in late on the
+  // client's screen. The more latency, the further ahead its camera can
+  // be.
+  const auto marginSize = snapshotSpriteMargin(participant.mViewLatency);
+  const auto margin = base::Vec2{marginSize, marginSize};
   const auto collectionStart = snapshot.mCameraPosition - margin;
   const auto collectionSize = base::Size{
-    participant.mRemoteViewportSize.width + 2 * SNAPSHOT_SPRITE_MARGIN,
-    participant.mRemoteViewportSize.height + 2 * SNAPSHOT_SPRITE_MARGIN};
+    participant.mRemoteViewportSize.width + 2 * marginSize,
+    participant.mRemoteViewportSize.height + 2 * marginSize};
 
   state.mSpriteRenderingSystem.update(
     state.mEntities, collectionSize, collectionStart, 1.0f);

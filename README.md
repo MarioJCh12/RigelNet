@@ -3,11 +3,19 @@
 **Online and split-screen deathmatch for Duke Nukem II, built on
 [RigelEngine](https://github.com/lethal-guitar/RigelEngine).**
 
-> 🇪🇸 Guía completa en español: [DEATHMATCH.md](DEATHMATCH.md)
-
 RigelNet adds multiplayer to RigelEngine, the modern re-implementation of
 Duke Nukem II by Nikolai Wuttke. Single player works exactly as in
 RigelEngine.
+
+## About this project
+
+RigelNet is a hobby project, made for fun and still under construction.
+A friend of mine suggested the idea: he wanted to play Duke Nukem II
+deathmatch the way NetKeen lets you play Commander Keen online, and he
+recommended building it on RigelEngine. I've been developing it with the
+help of AI, testing and fixing things as I go, so expect rough edges.
+
+So far, I've only built and tested it on Windows.
 
 <img src="docs/images/split-screen.png" width="400"/> <img src="docs/images/network-client.png" width="400"/>
 
@@ -95,13 +103,65 @@ are assigned in the order they were connected.
 
 ## Building
 
-Same as RigelEngine, see [BUILDING.md](BUILDING.md). The networking library
-([ENet](https://github.com/lsalzman/enet)) is included in `3rd_party/enet`,
-no extra dependencies are needed.
+So far, RigelNet has only been built and tested on **Windows**, with
+Visual Studio 2026. It should build on Linux and macOS the same way as
+RigelEngine (see [BUILDING.md](BUILDING.md)), but that hasn't been tried
+yet.
 
-With Visual Studio 2026 / CMake 4, add `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`
-when running CMake. Step-by-step Windows instructions are in
-[DEATHMATCH.md](DEATHMATCH.md) (Spanish).
+### Windows
+
+1. **Install Visual Studio 2026** with the **Desktop development with C++**
+   workload. This also installs CMake.
+
+2. **Install vcpkg and the libraries.** In a terminal:
+
+   ```
+   git clone https://github.com/microsoft/vcpkg C:\vcpkg
+   C:\vcpkg\bootstrap-vcpkg.bat
+   C:\vcpkg\vcpkg install sdl2:x64-windows sdl2-mixer:x64-windows
+   ```
+
+   You can put vcpkg somewhere else, just change `C:\vcpkg` in the steps
+   below too.
+
+3. **Get the source code**, including the submodules (libraries that are
+   downloaded separately, the build fails without them):
+
+   ```
+   git clone --recursive https://github.com/MarioJCh12/RigelNet
+   cd RigelNet
+   ```
+
+   If you already cloned without `--recursive`, run
+   `git submodule update --init --recursive` inside the folder.
+
+4. **Configure and build.** Open **Developer PowerShell for VS 2026** from
+   the Start menu (a regular terminal doesn't find CMake), go to the
+   `RigelNet` folder, and run:
+
+   ```
+   cmake -S . -B build -G "Visual Studio 18 2026" -A x64 "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake" "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+   cmake --build build --config Release --target RigelEngine
+   ```
+
+   In PowerShell, keep the quotes around the `-D...` options. Without them,
+   PowerShell splits them up and CMake fails with confusing errors. The
+   `CMAKE_POLICY_VERSION_MINIMUM` option is needed because one of the
+   included libraries is older than what CMake 4 accepts by default.
+
+   Instead of the second command, you can also open `build\RigelEngine.sln`
+   in Visual Studio, choose **Release**, and build the **RigelEngine**
+   project.
+
+5. **Run it.** The game ends up in `build\src\Release\RigelEngine.exe`,
+   with the DLLs it needs next to it. See [Quick start](#quick-start) for
+   how to start a game.
+
+After pulling new changes, only the build command from step 4
+(`cmake --build ...`) is needed again.
+
+The networking library ([ENet](https://github.com/lsalzman/enet)) is
+included in `3rd_party/enet`, there's nothing extra to install for it.
 
 ## How the network mode works
 
